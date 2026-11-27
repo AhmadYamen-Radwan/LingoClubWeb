@@ -7,7 +7,7 @@ import { createLanguageCubeCanvas } from '../components/canvas-3d.js';
 
 export function renderAuthView({ navigate }) {
   let busy = false;
-  let errorMsg = '';
+  let errorMsg = store.authError || '';
   const nameInput = el('input', {
     type: 'text',
     className: 'field',
@@ -21,7 +21,11 @@ export function renderAuthView({ navigate }) {
     onTap: () => store.toast('Drag or tap the 3D EN↔AR cube!')
   });
 
-  const errorBox = el('div', { className: 'card card-soft-secondary small hidden' });
+  const errorBox = el(
+    'div',
+    { className: `card card-soft-secondary small ${errorMsg ? '' : 'hidden'}` },
+    errorMsg
+  );
 
   const googleBtn = el(
     'button',
@@ -34,22 +38,55 @@ export function renderAuthView({ navigate }) {
         errorMsg = '';
         errorBox.classList.add('hidden');
         googleBtn.disabled = true;
+        redirectBtn.disabled = true;
         googleBtn.textContent = 'Connecting to Google...';
         try {
-          await store.signInWithGoogle();
-          navigate('home');
+          const user = await store.signInWithGoogle({ preferRedirect: false, silentToast: true });
+          if (user) {
+            navigate('home');
+          }
         } catch (err) {
-          errorMsg = err?.message || 'Google Sign-In failed. You can also explore offline below!';
+          errorMsg = err?.message || 'Google Sign-In failed. You can also try Redirect Sign-In or Offline Explorer below.';
           errorBox.textContent = errorMsg;
           errorBox.classList.remove('hidden');
         } finally {
           busy = false;
           googleBtn.disabled = false;
+          redirectBtn.disabled = false;
           googleBtn.textContent = '🔐 Continue with Google (Cloud Sync)';
         }
       }
     },
     '🔐 Continue with Google (Cloud Sync)'
+  );
+
+  const redirectBtn = el(
+    'button',
+    {
+      type: 'button',
+      className: 'btn btn-outline btn-full',
+      onClick: async () => {
+        if (busy) return;
+        busy = true;
+        errorMsg = '';
+        errorBox.classList.add('hidden');
+        googleBtn.disabled = true;
+        redirectBtn.disabled = true;
+        redirectBtn.textContent = 'Redirecting to Google...';
+        try {
+          await store.signInWithGoogle({ preferRedirect: true, silentToast: true });
+        } catch (err) {
+          errorMsg = err?.message || 'Google Redirect Sign-In failed.';
+          errorBox.textContent = errorMsg;
+          errorBox.classList.remove('hidden');
+          busy = false;
+          googleBtn.disabled = false;
+          redirectBtn.disabled = false;
+          redirectBtn.textContent = '↗ Sign in via Full-Page Redirect (Mobile)';
+        }
+      }
+    },
+    '↗ Sign in via Full-Page Redirect (Mobile)'
   );
 
   const offlineBtn = el(
@@ -58,6 +95,7 @@ export function renderAuthView({ navigate }) {
       type: 'button',
       className: 'btn btn-mint btn-full',
       onClick: () => {
+        store.authError = '';
         store.enterOfflineMode(nameInput.value.trim() || 'Offline Explorer');
         navigate('home');
       }
@@ -112,7 +150,8 @@ export function renderAuthView({ navigate }) {
       { className: 'card stack-md' },
       el('h2', { className: 'section-title' }, 'Cloud Sync & Multiplayer'),
       el('p', { className: 'small muted', style: { margin: 0 } }, 'Sign in with Google to sync XP, custom decks, live Kahoot rooms, and Tutor progress across Android and Web.'),
-      googleBtn
+      googleBtn,
+      redirectBtn
     ),
     el(
       'div',

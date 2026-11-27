@@ -53,6 +53,7 @@ class AppStore extends EventTarget {
 
     // UI Global Filters & Theme
     this.selectedCefrFilter = null; // null | 'A1'|'A2'|'B1'|'B2'
+    this.authError = '';
     this.themeMode = getThemeMode();
     setThemeMode(this.themeMode);
 
@@ -119,17 +120,40 @@ class AppStore extends EventTarget {
         }
       }
       if (this.roomSession && this.roomSession.mode === 'LOCAL') {
-        const latest = nearbySync.getLocalQuizRoom(this.roomSession.roomCode);
-        if (latest) {
+        const roomCode = this.roomSession.roomCode;
+        const latest = nearbySync.getLocalQuizRoom(roomCode);
+        if ((ev?.type === 'ROOM_CLOSED' && ev.roomCode === roomCode) || !latest) {
+          const wasHost = this.roomSession.isHost;
+          this._clearRoomUnsubs();
+          this.roomSession = null;
+          if (!wasHost) {
+            this.toast('Host left — quiz room was closed.', 'error');
+          }
+        } else {
           this._applyLocalRoomSnapshot(latest);
         }
       }
       this.emit('change');
     });
 
+    // Best-effort room cleanup if host closes browser tab
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pagehide', () => {
+        const s = this.roomSession;
+        if (s?.isHost && s.roomCode) {
+          if (s.mode === 'LOCAL') {
+            nearbySync.closeLocalQuizRoom(s.roomCode);
+          } else {
+            firebaseClient.deleteQuizRoom(s.roomCode).catch(() => {});
+          }
+        }
+      });
+    }
+
     // Firebase Auth observer
     firebaseClient.initAuthListener(async (fbUser) => {
       this.authLoading = false;
+      this.authError = firebaseClient.lastAuthError || '';
       if (fbUser) {
         this.user = fbUser;
         this.authMode = 'GOOGLE';
@@ -173,15 +197,20 @@ class AppStore extends EventTarget {
     this.emit('change');
   }
 
-  async signInWithGoogle() {
+  async signInWithGoogle({ preferRedirect = false, silentToast = false } = {}) {
+    this.authError = '';
     try {
-      const user = await firebaseClient.signInWithGoogle();
+      const user = await firebaseClient.signInWithGoogle({ preferRedirect });
       if (user) {
         this.toast(`Welcome back, ${user.displayName || 'Lingo Member'}!`);
       }
+      return user;
     } catch (err) {
       const msg = err?.message || 'Google Sign-In failed.';
-      this.toast(msg, 'error');
+      this.authError = msg;
+      if (!silentToast) {
+        this.toast(msg, 'error');
+      }
       throw err;
     }
   }
@@ -831,6 +860,7 @@ class AppStore extends EventTarget {
         mode: 'LOCAL',
         roomCode: room.roomCode,
         isHost: true,
+        hasLoadedRoom: true,
         localNickname: this.currentUserName,
         localAvatarColor: 'INDIGO',
         room,
@@ -853,6 +883,10 @@ class AppStore extends EventTarget {
       return room.roomCode;
     }
 
+    if (prepared.length > 20) {
+      this.toast('Cloud Live Rooms host up to 20 questions (use Solo Blitz for all ' + prepared.length + ').');
+    }
+
     const code = await firebaseClient.createQuizRoom({
       hostName: this.currentUserName,
       quizTitle,
@@ -869,6 +903,7 @@ class AppStore extends EventTarget {
       mode: 'CLOUD',
       roomCode: code,
       isHost: true,
+      hasLoadedRoom: false,
       localNickname: this.currentUserName,
       localAvatarColor: 'INDIGO',
       room: null,
@@ -926,6 +961,7 @@ class AppStore extends EventTarget {
       mode: 'CLOUD',
       roomCode: clean,
       isHost: room.hostUid === this.currentUserId,
+      hasLoadedRoom: true,
       localNickname: cleanNick,
       localAvatarColor: avatarColor,
       room,
@@ -944,14 +980,37 @@ class AppStore extends EventTarget {
 
   async _attachOnlineRoomListeners(roomCode, hostUid) {
     this._clearRoomUnsubs();
-    const u1 = await firebaseClient.observeRoom(roomCode, (room) => {
+    const kickOut = (reason = 'Host left — quiz room was closed.') => {
       if (!this.roomSession || this.roomSession.roomCode !== roomCode) return;
-      this.roomSession = { ...this.roomSession, room };
-      if (room?.status === RoomStatus.PODIUM) {
-        this._handleRoomReachedPodium(this.roomSession);
+      const wasHost = this.roomSession.isHost;
+      this._clearRoomUnsubs();
+      this.roomSession = null;
+      if (!wasHost) {
+        this.toast(reason, 'error');
       }
       this.emit('change');
-    });
+    };
+
+    const u1 = await firebaseClient.observeRoom(
+      roomCode,
+      (room) => {
+        if (!this.roomSession || this.roomSession.roomCode !== roomCode) return;
+        if (!room) {
+          if (this.roomSession.hasLoadedRoom || !this.roomSession.isHost) {
+            kickOut('Host left — quiz room was closed.');
+          }
+          return;
+        }
+        this.roomSession = { ...this.roomSession, room, hasLoadedRoom: true };
+        if (room.status === RoomStatus.PODIUM) {
+          this._handleRoomReachedPodium(this.roomSession);
+        }
+        this.emit('change');
+      },
+      () => {
+        kickOut('Quiz room ended or is no longer available.');
+      }
+    );
     const u2 = await firebaseClient.observeRoomPlayers(
       roomCode,
       hostUid,
@@ -1137,10 +1196,21 @@ class AppStore extends EventTarget {
     }
   }
 
-  leaveLiveRoom() {
+  async leaveLiveRoom() {
+    const s = this.roomSession;
     this._clearRoomUnsubs();
     this.roomSession = null;
     this.emit('change');
+    if (s?.isHost && s.roomCode) {
+      if (s.mode === 'LOCAL') {
+        nearbySync.closeLocalQuizRoom(s.roomCode);
+      } else {
+        try {
+          await firebaseClient.deleteQuizRoom(s.roomCode);
+        } catch (_) {}
+      }
+      this.toast('Quiz room closed — all players removed.');
+    }
   }
 
   // --- Team Chat & Nearby Squad ---

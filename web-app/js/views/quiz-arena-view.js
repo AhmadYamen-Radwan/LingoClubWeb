@@ -591,7 +591,7 @@ function renderLiveRoomView() {
           style: { background: 'rgba(255,255,255,0.2)', color: '#FFFFFF' },
           onClick: () => { stopRoomTimer(); store.leaveLiveRoom(); }
         },
-        'Leave Room'
+        s.isHost ? 'End Room (Kick All)' : 'Leave Room'
       )
     ),
 
@@ -601,7 +601,7 @@ function renderLiveRoomView() {
           'div',
           { className: 'card stack-md' },
           el('h2', { className: 'section-title' }, 'Waiting in Lobby...'),
-          el('p', { className: 'small muted', style: { margin: 0 } }, store.isOfflineMode ? 'Open a second tab in Offline Explorer and enter this 6-character PIN to play live across tabs!' : 'Share the 6-character PIN with classmates to join from Android or Web.'),
+          el('p', { className: 'small muted', style: { margin: 0 } }, store.isOfflineMode ? 'Open a second tab in Offline Explorer and enter this 6-character PIN to play live across tabs! Leaving as host closes the room for everyone.' : 'Share the 6-character PIN with classmates to join from Android or Web. Leaving as host ends the room and removes all players.'),
           el(
             'div',
             { className: 'row-wrap' },
@@ -716,6 +716,7 @@ export function renderQuizArenaView({ navigate }) {
       renderLiveRoomView()
     );
   }
+  stopRoomTimer();
 
   if (soloState) {
     return el(

@@ -142,7 +142,7 @@ class NearbySyncService {
       status: 'LOBBY',
       currentQuestionIndex: 0,
       questionStartedAtMs: 0,
-      questions: questions.slice(0, 20),
+      questions: questions.slice(0, 60),
       leaderboard: [],
       players: {},
       messages: [],
@@ -152,6 +152,17 @@ class NearbySyncService {
     writeHubState(state);
     this._broadcast({ type: 'ROOM_UPDATED', roomCode: code });
     return room;
+  }
+
+  closeLocalQuizRoom(roomCode) {
+    const clean = String(roomCode || '').trim().toUpperCase();
+    if (!clean) return;
+    const state = readHubState();
+    if (state.rooms[clean]) {
+      delete state.rooms[clean];
+      writeHubState(state);
+    }
+    this._broadcast({ type: 'ROOM_CLOSED', roomCode: clean });
   }
 
   getLocalQuizRoom(roomCode) {

@@ -82,21 +82,45 @@ function mapSnapshotDoc(snap) {
   };
 }
 
+function formatGoogleAuthError(err) {
+  const code = err?.code || '';
+  const host = typeof window !== 'undefined' ? window.location.hostname : '';
+  if (code === 'auth/unauthorized-domain') {
+    return `Domain "${host}" is not authorized for Google Sign-In yet. Add "${host}" in Firebase Console → Authentication → Settings → Authorized domains, or use Offline Explorer below.`;
+  }
+  if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+    return `Google Sign-In popup closed before completing. Try "Sign in with Redirect" below (recommended on mobile), or make sure "${host}" is added to Firebase Authorized domains.`;
+  }
+  if (code === 'auth/popup-blocked') {
+    return 'Browser blocked the Google sign-in popup. Try "Sign in with Redirect" below.';
+  }
+  if (code === 'auth/network-request-failed') {
+    return 'Network error while contacting Google Sign-In. Check your connection or use Offline Explorer.';
+  }
+  return err?.message || 'Google Sign-In failed.';
+}
+
 class FirebaseClient {
   constructor() {
     this._currentUser = null;
+    this.lastAuthError = '';
   }
 
   async initAuthListener(onUserChanged) {
     try {
       const { auth, authMod } = await ensureSdk();
       try {
-        await authMod.getRedirectResult(auth);
-      } catch (_) {
-        // Ignore stale redirect errors on init
+        const redir = await authMod.getRedirectResult(auth);
+        if (redir?.user) {
+          this.lastAuthError = '';
+        }
+      } catch (err) {
+        this.lastAuthError = formatGoogleAuthError(err);
+        console.warn('[FirebaseClient] Redirect sign-in error:', err?.code, err?.message);
       }
       return authMod.onAuthStateChanged(auth, (user) => {
         this._currentUser = user || null;
+        if (user) this.lastAuthError = '';
         onUserChanged(this._currentUser);
       });
     } catch (err) {
@@ -125,24 +149,39 @@ class FirebaseClient {
     );
   }
 
-  async signInWithGoogle() {
+  async signInWithGoogle({ preferRedirect = false } = {}) {
     const { auth, authMod } = await ensureSdk();
+    this.lastAuthError = '';
     const provider = new authMod.GoogleAuthProvider();
     provider.setCustomParameters({ prompt: 'select_account' });
+
+    if (preferRedirect) {
+      await authMod.signInWithRedirect(auth, provider);
+      return null;
+    }
+
+    const isMobile = typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
     try {
       const result = await authMod.signInWithPopup(auth, provider);
       this._currentUser = result.user;
+      try { sessionStorage.removeItem('lingo_popup_fallback_used'); } catch (_) {}
       return result.user;
     } catch (err) {
       const code = err?.code || '';
+      const alreadyTriedRedirect = (() => {
+        try { return sessionStorage.getItem('lingo_popup_fallback_used') === '1'; } catch { return false; }
+      })();
+
       if (
         code === 'auth/popup-blocked' ||
-        code === 'auth/operation-not-supported-in-this-environment'
+        code === 'auth/operation-not-supported-in-this-environment' ||
+        (isMobile && code === 'auth/popup-closed-by-user' && !alreadyTriedRedirect)
       ) {
+        try { sessionStorage.setItem('lingo_popup_fallback_used', '1'); } catch (_) {}
         await authMod.signInWithRedirect(auth, provider);
         return null;
       }
-      throw err;
+      throw new Error(formatGoogleAuthError(err));
     }
   }
 
@@ -595,6 +634,14 @@ class FirebaseClient {
       (snap) => onData(snap.exists() ? mapSnapshotDoc(snap) : null),
       (err) => onError?.(err)
     );
+  }
+
+  async deleteQuizRoom(roomCode) {
+    const { db, fsMod } = await ensureSdk();
+    this.requireUid();
+    const clean = String(roomCode || '').trim().toUpperCase();
+    if (!/^[A-Z0-9]{6}$/.test(clean)) return;
+    await fsMod.deleteDoc(fsMod.doc(db, 'quiz_rooms', clean));
   }
 
   async observeRoomPlayers(roomCode, hostUid, onData, onError) {
