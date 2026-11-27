@@ -16,6 +16,7 @@ import {
 } from '../models.js';
 import { ARABIC_QUIZ_PACKS, QUIZ_PACKS } from '../data/curated-content.js';
 import { aiService } from '../services/ai-service.js';
+import { audioService } from '../services/audio-service.js';
 import { store } from '../store/app-store.js';
 import { createCefrBadge, openModal, closeModal } from '../components/ui-shared.js';
 import { createTrophyCanvas } from '../components/canvas-3d.js';
@@ -541,6 +542,7 @@ function renderSoloBlitzView() {
               s.selectedIdx = idx;
               const ok = idx === Number(q.correctIndex);
               if (ok) {
+                audioService.playCorrect();
                 const basePts = computeQuizPointsEarned(true, s.timeLeft, Number(q.timeLimitSec || 20), s.streak);
                 const pts = Math.round(basePts * (diffCfg.xpMultiplier || 1));
                 s.score += pts;
@@ -549,6 +551,7 @@ function renderSoloBlitzView() {
                 s.correctCount += 1;
                 store.toast(`+${pts} pts!`);
               } else {
+                audioService.playIncorrect();
                 s.streak = 0;
               }
               store.emit('change');

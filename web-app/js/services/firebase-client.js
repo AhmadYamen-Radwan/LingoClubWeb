@@ -174,8 +174,10 @@ class FirebaseClient {
 
       if (
         code === 'auth/popup-blocked' ||
+        code === 'auth/popup-closed-by-user' ||
+        code === 'auth/cancelled-popup-request' ||
         code === 'auth/operation-not-supported-in-this-environment' ||
-        (isMobile && code === 'auth/popup-closed-by-user' && !alreadyTriedRedirect)
+        (isMobile && !alreadyTriedRedirect)
       ) {
         try { sessionStorage.setItem('lingo_popup_fallback_used', '1'); } catch (_) {}
         await authMod.signInWithRedirect(auth, provider);

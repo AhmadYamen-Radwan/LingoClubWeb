@@ -4,7 +4,7 @@
 import { ActivityType, DIFFICULTY_CONFIG, DIFFICULTY_LEVELS, el, shuffleArray } from '../models.js';
 import {
   ARABIC_ARCADE_WORDS,
-  ARABIC_GRAMMAR_DUEL_ROUNDS,
+  ARABIC_CRIME_SCIENCE_HISTORY_ROUNDS,
   ARABIC_VAULT_WORDS,
   CRIME_MYSTERY_CASES,
   CURATED_EVIDENCE_CARDS,
@@ -412,7 +412,7 @@ function startArabicVault() {
 function startArabicDuel() {
   stopArcadeTimers();
   const diff = getDiffConfig();
-  const rounds = shuffleArray(ARABIC_GRAMMAR_DUEL_ROUNDS).map((r) => ({
+  const rounds = shuffleArray(ARABIC_CRIME_SCIENCE_HISTORY_ROUNDS).map((r) => ({
     ...r,
     shuffledOptions: shuffleArray(r.options.map((text, idx) => ({ text, isCorrect: idx === Number(r.oddIndex) })))
   }));
@@ -1546,7 +1546,7 @@ export function renderArcadeView({ navigate }) {
     { id: 'AR_BLITZ', lang: 'AR', cat: 'BLITZ', icon: '⚡', title: 'سباق المعاني السريع (Arabic Blitz)', desc: `${diff.dashDurationSec}ث للمرادفات والأضداد العربية`, fn: startArabicBlitz, bg: 'var(--tertiary-soft)', ink: 'var(--on-tertiary-soft)' },
     { id: 'AR_DETECTIVE', lang: 'AR', cat: 'DETECTIVE', icon: '🔍', title: 'كاشف الكلمة العربية', desc: `خمّن الكلمة العربية (${diff.detectiveLives} محاولات) بلوحة عربية`, fn: startArabicDetective, bg: 'var(--primary-soft)', ink: 'var(--on-primary-soft)' },
     { id: 'AR_VAULT', lang: 'AR', cat: 'MEMORY', icon: '🔐', title: 'خزنة الحروف العربية', desc: `تحدي تخمين الكلمة العربية (${diff.vaultRows} صفوف)`, fn: startArabicVault, bg: 'var(--sky-soft)', ink: 'var(--on-sky-soft)' },
-    { id: 'AR_DUEL', lang: 'AR', cat: 'BLITZ', icon: '⚔️', title: 'تحدي النحو والإملاء', desc: `${diff.duelDurationSec}ث في قواعد العربية والإملاء`, fn: startArabicDuel, bg: 'var(--purple-soft)', ink: 'var(--on-purple-soft)' }
+    { id: 'AR_DUEL', lang: 'AR', cat: 'BLITZ', icon: '⚔️', title: 'تحدي الجرائم والعلوم (Crime & Science)', desc: `${diff.duelDurationSec}ث في ألغاز الجرائم والعلوم والفلك والتاريخ`, fn: startArabicDuel, bg: 'var(--purple-soft)', ink: 'var(--on-purple-soft)' }
   ];
 
   const langTabs = [

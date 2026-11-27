@@ -4,6 +4,7 @@ import { clearEl, el } from './js/models.js';
 import { store } from './js/store/app-store.js';
 import { loadFullDictionary } from './js/data/dictionary.js';
 import { ttsSpeaker } from './js/services/speech-media.js';
+import { audioService } from './js/services/audio-service.js';
 import { showToast } from './js/components/ui-shared.js';
 import { triggerConfettiBurst } from './js/components/canvas-3d.js';
 
@@ -57,12 +58,20 @@ function getRouteFromHash() {
 function navigate(route) {
   const target = ROUTES[route] ? route : 'home';
   if (getRouteFromHash() !== target) {
+    audioService.playTransition();
     window.location.hash = `#/${target}`;
   } else {
     renderApp();
   }
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
+
+document.addEventListener('click', (e) => {
+  const interactive = e.target.closest('button, .btn, .nav-btn, .rail-btn, .bnav-btn, .kahoot-tile, .card, .badge-pill, input[type="checkbox"], input[type="radio"]');
+  if (interactive) {
+    audioService.playClick();
+  }
+});
 
 function renderNavigation(currentRoute, signedIn) {
   const rail = document.getElementById('nav-rail');

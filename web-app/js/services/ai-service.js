@@ -3,7 +3,7 @@
 
 import {
   ARABIC_ARCADE_WORDS,
-  ARABIC_GRAMMAR_DUEL_ROUNDS,
+  ARABIC_CRIME_SCIENCE_HISTORY_ROUNDS,
   ARABIC_QUIZ_PACKS,
   OfflineRoleplayGenerator,
   QUIZ_PACKS
@@ -200,7 +200,7 @@ function buildOfflineQuizDraft({
   // Arabic-first offline bank when quizMode is ARABIC or topic is Arabic
   if (preferArabic) {
     const arPackQs = ARABIC_QUIZ_PACKS.flatMap((p) => p.questions || []);
-    const arDuelQs = ARABIC_GRAMMAR_DUEL_ROUNDS.map((r) => ({
+    const arDuelQs = ARABIC_CRIME_SCIENCE_HISTORY_ROUNDS.map((r) => ({
       prompt: r.scenarioPrompt,
       options: r.options,
       correctIndex: r.oddIndex,
