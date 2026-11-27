@@ -1,0 +1,29 @@
+<resources>
+    <string name="app_name">LingoClub</string>
+    <string name="auth_badge_english_studio">ENGLISH CLUB STUDIO</string>
+    <string name="auth_headline">Learn &amp; Teach English Together.</string>
+    <string name="auth_subtitle">All levels from A1 starters to B2 fluency—live Kahoot quizzes, 200-word weekly tracks, audiobooks, puzzles, flashcards, roleplays, and team chat.</string>
+    <string name="auth_card_title">Ready to join the club?</string>
+    <string name="auth_card_desc">Sign in with Google to save custom quizzes, unlock achievement badges, practice speaking, and connect with your English teams.</string>
+    <string name="cd_hero_illustration">Friends playing English card and quiz games together</string>
+    <string name="cd_quiz_arena">Quiz Arena illustration</string>
+    <string name="cd_roleplay_stage">Roleplay stage illustration</string>
+    <string name="cd_party_cards">Flashcards, puzzles, and stopwatch illustration</string>
+    <string name="cd_mascot_3d_illustration">3D LingoClub owl coach mascot holding an English book</string>
+    <string name="mode_quiz_title">Quiz Clash</string>
+    <string name="mode_quiz_sub">Live Kahoot rooms &amp; solo blitz</string>
+    <string name="mode_puzzles_title">Word Forge</string>
+    <string name="mode_puzzles_sub">Scramble, match &amp; gap-fill</string>
+    <string name="mode_cards_title">Deck Studio</string>
+    <string name="mode_cards_sub">Flip cards &amp; teaching tips</string>
+    <string name="mode_guessing_title">Taboo &amp; Act</string>
+    <string name="mode_guessing_sub">Party guessing &amp; charades</string>
+    <string name="mode_roleplay_title">Stage &amp; Script</string>
+    <string name="mode_roleplay_sub">Interactive dialogues + twists</string>
+    <string name="nav_home">Club</string>
+    <string name="nav_quiz">Quiz</string>
+    <string name="nav_puzzles">Puzzles</string>
+    <string name="nav_cards">Cards</string>
+    <string name="nav_play">Party</string>
+    <string name="sign_out">Sign out</string>
+</resources>

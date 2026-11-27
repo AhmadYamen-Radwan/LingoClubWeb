@@ -1,0 +1,17 @@
+{
+  "name": "LingoClub — Bilingual English–Arabic Studio",
+  "short_name": "LingoClub",
+  "description": "Playful English–Arabic quiz clash, 200-word weekly club, mystery arcade, flashcards, roleplays, and 18.6K+ dictionary.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#FAF8F5",
+  "theme_color": "#563AE4",
+  "icons": [
+    {
+      "src": "./assets/app_icon_lingoclub.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg",
+      "purpose": "any maskable"
+    }
+  ]
+}

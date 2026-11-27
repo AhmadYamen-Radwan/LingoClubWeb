@@ -1,0 +1,522 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Learner and tutor profile stats including CEFR level, badges, team membership, tutor link, and historical performance counters.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the profile owner."
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Display name shown in the app."
+        },
+        "learningLevel": {
+          "type": "string",
+          "enum": ["A1", "A2", "B1", "B2"],
+          "description": "Learner's active CEFR learning level."
+        },
+        "xp": {
+          "type": "integer",
+          "description": "Total experience points earned."
+        },
+        "streak": {
+          "type": "integer",
+          "description": "Current practice streak count in days."
+        },
+        "quizzesHosted": {
+          "type": "integer",
+          "description": "Number of live quizzes hosted."
+        },
+        "quizzesPlayed": {
+          "type": "integer",
+          "description": "Number of solo or live quizzes completed."
+        },
+        "cardsMastered": {
+          "type": "integer",
+          "description": "Count of mastered flashcards."
+        },
+        "sessionsCompleted": {
+          "type": "integer",
+          "description": "Number of weekly teaching sessions completed (3 sessions/week)."
+        },
+        "audiobooksFinished": {
+          "type": "integer",
+          "description": "Number of audiobook chapters/books listened to."
+        },
+        "weeklyWordsMastered": {
+          "type": "integer",
+          "description": "Total weekly vocabulary words mastered across domains."
+        },
+        "bestLiveQuizScore": {
+          "type": "integer",
+          "description": "Highest score achieved in a live or solo Kahoot quiz."
+        },
+        "earnedBadges": {
+          "type": "array",
+          "description": "Unlocked badge IDs earned from weekly sessions and live quiz high scores."
+        },
+        "teamId": {
+          "type": "string",
+          "description": "Current joined team document ID."
+        },
+        "teamName": {
+          "type": "string",
+          "description": "Current joined team display name."
+        },
+        "accountRole": {
+          "type": "string",
+          "enum": ["STUDENT", "TUTOR"],
+          "description": "Account role for tutor-student progress visibility."
+        },
+        "tutorUid": {
+          "type": "string",
+          "description": "UID of the linked tutor for student progress tracking."
+        },
+        "tutorName": {
+          "type": "string",
+          "description": "Display name or label of the linked tutor."
+        },
+        "pinnedEvidenceIds": {
+          "type": "array",
+          "description": "Evidence card IDs pinned by the detective player to their digital evidence board."
+        },
+        "lastActiveEpochDay": {
+          "type": "integer",
+          "description": "UTC epoch day of last recorded study activity."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when created via FieldValue.serverTimestamp()."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when updated via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": [
+        "userId",
+        "displayName",
+        "learningLevel",
+        "xp",
+        "streak",
+        "quizzesHosted",
+        "quizzesPlayed",
+        "cardsMastered",
+        "sessionsCompleted",
+        "audiobooksFinished",
+        "weeklyWordsMastered",
+        "bestLiveQuizScore",
+        "earnedBadges",
+        "teamId",
+        "teamName",
+        "lastActiveEpochDay",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "TutorStudentProgress": {
+      "title": "TutorStudentProgress",
+      "description": "Student progress snapshot synced for a linked tutor to monitor CEFR level, weekly words, quizzes, flashcards, badges, and recent sessions.",
+      "type": "object",
+      "properties": {
+        "studentUid": { "type": "string" },
+        "tutorUid": { "type": "string" },
+        "studentName": { "type": "string" },
+        "learningLevel": { "type": "string", "enum": ["A1", "A2", "B1", "B2"] },
+        "xp": { "type": "integer" },
+        "streak": { "type": "integer" },
+        "sessionsCompleted": { "type": "integer" },
+        "weeklyWordsMastered": { "type": "integer" },
+        "quizzesPlayed": { "type": "integer" },
+        "quizzesHosted": { "type": "integer" },
+        "bestLiveQuizScore": { "type": "integer" },
+        "cardsMastered": { "type": "integer" },
+        "decksCreated": { "type": "integer" },
+        "audiobooksFinished": { "type": "integer" },
+        "teamName": { "type": "string" },
+        "earnedBadges": { "type": "array" },
+        "recentActivities": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "studentUid",
+        "tutorUid",
+        "studentName",
+        "learningLevel",
+        "xp",
+        "streak",
+        "sessionsCompleted",
+        "weeklyWordsMastered",
+        "quizzesPlayed",
+        "quizzesHosted",
+        "bestLiveQuizScore",
+        "cardsMastered",
+        "decksCreated",
+        "audiobooksFinished",
+        "teamName",
+        "earnedBadges",
+        "recentActivities",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Team": {
+      "title": "Team",
+      "description": "Learning team or tutor-to-teams broadcast channel.",
+      "type": "object",
+      "properties": {
+        "visibility": { "type": "string", "enum": ["CLUB"] },
+        "name": { "type": "string" },
+        "cefrLevel": { "type": "string", "enum": ["A1", "A2", "B1", "B2"] },
+        "motto": { "type": "string" },
+        "accentColor": { "type": "string", "enum": ["INDIGO", "CORAL", "AMBER", "MINT", "PURPLE"] },
+        "leaderUid": { "type": "string" },
+        "leaderName": { "type": "string" },
+        "channelKind": { "type": "string", "enum": ["TEACHER_HUB", "TEAM"] },
+        "memberCount": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["visibility", "name", "cefrLevel", "motto", "accentColor", "leaderUid", "leaderName", "channelKind", "memberCount", "createdAt", "updatedAt"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "Real-time message inside a team or tutor-team chat channel.",
+      "type": "object",
+      "properties": {
+        "teamId": { "type": "string" },
+        "senderUid": { "type": "string" },
+        "senderName": { "type": "string" },
+        "senderTeamName": { "type": "string" },
+        "senderRole": { "type": "string", "enum": ["ADMIN", "TEACHER", "PLAYER"] },
+        "text": { "type": "string" },
+        "pinned": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["teamId", "senderUid", "senderName", "senderTeamName", "senderRole", "text", "pinned", "createdAt", "updatedAt"]
+    },
+    "ClubContent": {
+      "title": "ClubContent",
+      "description": "Shared club-wide teaching items (Quiz, Deck, Puzzle, Roleplay, Weekly Word Pack, or Announcement).",
+      "type": "object",
+      "properties": {
+        "visibility": { "type": "string", "enum": ["CLUB"] },
+        "authorUid": { "type": "string" },
+        "authorName": { "type": "string" },
+        "contentType": { "type": "string", "enum": ["QUIZ", "DECK", "PUZZLE", "ROLEPLAY", "WEEKLY_PACK", "ANNOUNCEMENT"] },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "cefrLevel": { "type": "string", "enum": ["A1", "A2", "B1", "B2"] },
+        "topic": { "type": "string" },
+        "puzzleKind": { "type": "string", "enum": ["", "SCRAMBLE", "GAP_FILL", "MATCH"] },
+        "tokens": { "type": "array" },
+        "clozeBefore": { "type": "string" },
+        "clozeAfter": { "type": "string" },
+        "clozeAnswer": { "type": "string" },
+        "clozeOptions": { "type": "array" },
+        "matchPairs": { "type": "array" },
+        "questions": { "type": "array" },
+        "cards": { "type": "array" },
+        "roleAName": { "type": "string" },
+        "roleBName": { "type": "string" },
+        "goal": { "type": "string" },
+        "lines": { "type": "array" },
+        "plotTwists": { "type": "array" },
+        "weekNumber": { "type": "integer" },
+        "sessionNumber": { "type": "integer" },
+        "vocabWords": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "visibility", "authorUid", "authorName", "contentType", "title", "description",
+        "cefrLevel", "topic", "puzzleKind", "tokens", "clozeBefore", "clozeAfter",
+        "clozeAnswer", "clozeOptions", "matchPairs", "questions", "cards",
+        "roleAName", "roleBName", "goal", "lines", "plotTwists",
+        "weekNumber", "sessionNumber", "vocabWords", "createdAt", "updatedAt"
+      ]
+    },
+    "SessionRecord": {
+      "title": "SessionRecord",
+      "description": "Historical performance entry for a completed quiz, flashcard study review, teaching session, audiobook, or game.",
+      "type": "object",
+      "properties": {
+        "activityType": {
+          "type": "string",
+          "enum": ["QUIZ", "PUZZLE", "CARDS", "GUESSING", "ROLEPLAY", "AUDIOBOOK", "WEEKLY_SESSION", "GAME"],
+          "description": "Category of learning activity."
+        },
+        "title": {
+          "type": "string",
+          "description": "Human-readable summary of the activity."
+        },
+        "cefrLevel": {
+          "type": "string",
+          "enum": ["A1", "A2", "B1", "B2"],
+          "description": "CEFR level of the completed activity."
+        },
+        "score": {
+          "type": "integer",
+          "description": "XP or points earned."
+        },
+        "accuracyPct": {
+          "type": "integer",
+          "description": "Percentage accuracy or completion (0 to 100)."
+        },
+        "wordsPracticed": {
+          "type": "integer",
+          "description": "Number of words practiced or mastered."
+        },
+        "durationMinutes": {
+          "type": "integer",
+          "description": "Estimated session duration in minutes."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["activityType", "title", "cefrLevel", "score", "accuracyPct", "wordsPracticed", "durationMinutes", "createdAt", "updatedAt"]
+    },
+    "WeeklyProgress": {
+      "title": "WeeklyProgress",
+      "description": "Tracks mastery of up to 200 dedicated words and 3 teaching sessions for a specific week.",
+      "type": "object",
+      "properties": {
+        "weekNumber": {
+          "type": "integer",
+          "description": "1-based curriculum week number."
+        },
+        "masteredWordIds": {
+          "type": "array",
+          "description": "IDs of mastered words in this week (max 200)."
+        },
+        "completedSessions": {
+          "type": "array",
+          "description": "Completed session numbers (1, 2, 3)."
+        },
+        "gamesPlayed": {
+          "type": "integer",
+          "description": "Interactive vocabulary games completed this week."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["weekNumber", "masteredWordIds", "completedSessions", "gamesPlayed", "createdAt", "updatedAt"]
+    },
+    "CustomRoleplay": {
+      "title": "CustomRoleplay",
+      "description": "User-saved AI or offline-generated interactive roleplay script.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "setting": { "type": "string" },
+        "cefrLevel": { "type": "string", "enum": ["A1", "A2", "B1", "B2"] },
+        "roleAName": { "type": "string" },
+        "roleBName": { "type": "string" },
+        "goal": { "type": "string" },
+        "source": { "type": "string", "enum": ["AI", "OFFLINE"] },
+        "lines": { "type": "array" },
+        "plotTwists": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "setting", "cefrLevel", "roleAName", "roleBName", "goal", "source", "lines", "plotTwists", "createdAt", "updatedAt"]
+    },
+    "CustomQuiz": {
+      "title": "CustomQuiz",
+      "description": "User-authored or AI-generated Kahoot-style English quiz deck.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "topic": { "type": "string" },
+        "cefrLevel": { "type": "string", "enum": ["A1", "A2", "B1", "B2"] },
+        "questions": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "topic", "cefrLevel", "questions", "createdAt", "updatedAt"]
+    },
+    "CustomDeck": {
+      "title": "CustomDeck",
+      "description": "User-created flashcard word deck stored in Firestore for study and review.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "cefrLevel": { "type": "string", "enum": ["A1", "A2", "B1", "B2"] },
+        "cards": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "cefrLevel", "cards", "createdAt", "updatedAt"]
+    },
+    "CardMastery": {
+      "title": "CardMastery",
+      "description": "Per-card mastery and review count tracking record for flashcards.",
+      "type": "object",
+      "properties": {
+        "deckId": { "type": "string" },
+        "mastered": { "type": "boolean" },
+        "reviewCount": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["deckId", "mastered", "reviewCount", "createdAt", "updatedAt"]
+    },
+    "QuizRoom": {
+      "title": "QuizRoom",
+      "description": "Live Kahoot-style multiplayer quiz room hosted by a user.",
+      "type": "object",
+      "properties": {
+        "hostUid": { "type": "string" },
+        "hostName": { "type": "string" },
+        "quizTitle": { "type": "string" },
+        "cefrLevel": { "type": "string", "enum": ["A1", "A2", "B1", "B2"] },
+        "status": { "type": "string", "enum": ["LOBBY", "QUESTION", "REVEAL", "PODIUM"] },
+        "currentQuestionIndex": { "type": "integer" },
+        "questionStartedAtMs": { "type": "integer" },
+        "questions": { "type": "array" },
+        "leaderboard": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["hostUid", "hostName", "quizTitle", "cefrLevel", "status", "currentQuestionIndex", "questionStartedAtMs", "questions", "leaderboard", "createdAt", "updatedAt"]
+    },
+    "RoomPlayer": {
+      "title": "RoomPlayer",
+      "description": "Participant state inside a live quiz room.",
+      "type": "object",
+      "properties": {
+        "playerUid": { "type": "string" },
+        "roomCode": { "type": "string" },
+        "hostUid": { "type": "string" },
+        "nickname": { "type": "string" },
+        "avatarColor": { "type": "string" },
+        "score": { "type": "integer" },
+        "streak": { "type": "integer" },
+        "lastAnswerIndex": { "type": "integer" },
+        "lastAnsweredQuestion": { "type": "integer" },
+        "lastAnswerCorrect": { "type": "boolean" },
+        "lastPointsEarned": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["playerUid", "roomCode", "hostUid", "nickname", "avatarColor", "score", "streak", "lastAnswerIndex", "lastAnsweredQuestion", "lastAnswerCorrect", "lastPointsEarned", "createdAt", "updatedAt"]
+    },
+    "RoomChatMessage": {
+      "title": "RoomChatMessage",
+      "description": "Real-time in-game chat message or quick reaction inside a live quiz room.",
+      "type": "object",
+      "properties": {
+        "roomCode": { "type": "string" },
+        "senderUid": { "type": "string" },
+        "senderName": { "type": "string" },
+        "avatarColor": { "type": "string" },
+        "hostSender": { "type": "boolean" },
+        "messageType": { "type": "string", "enum": ["TEXT", "REACTION"] },
+        "text": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["roomCode", "senderUid", "senderName", "avatarColor", "hostSender", "messageType", "text", "createdAt", "updatedAt"]
+    },
+    "ScoreRecord": {
+      "title": "ScoreRecord",
+      "description": "Global leaderboard score record for live quizzes and competitive arcade games.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "playerName": { "type": "string" },
+        "avatarColor": { "type": "string" },
+        "quizTitle": { "type": "string" },
+        "cefrLevel": { "type": "string", "enum": ["A1", "A2", "B1", "B2"] },
+        "score": { "type": "integer" },
+        "accuracyPct": { "type": "integer" },
+        "streak": { "type": "integer" },
+        "gameMode": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "playerName", "avatarColor", "quizTitle", "cefrLevel", "score", "accuracyPct", "streak", "gameMode", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/scores/{scoreId}": {
+      "schema": { "$ref": "#/entities/ScoreRecord" },
+      "description": "Global leaderboard scores for live quizzes and competitive arcade games."
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Per-user learning level, profile, earned badges, team membership, tutor connection, and historical stats."
+    },
+    "/tutors/{tutorUid}/students/{studentUid}": {
+      "schema": { "$ref": "#/entities/TutorStudentProgress" },
+      "description": "Tutor-scoped student progress snapshots allowing tutors to track linked students."
+    },
+    "/teams/{teamId}": {
+      "schema": { "$ref": "#/entities/Team" },
+      "description": "Learning teams and the official Tutor-to-Teams hub channel."
+    },
+    "/teams/{teamId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/ChatMessage" },
+      "description": "Real-time chat messages between teams and tutors."
+    },
+    "/club_content/{contentId}": {
+      "schema": { "$ref": "#/entities/ClubContent" },
+      "description": "Shared club-wide quizzes, decks, puzzles, roleplays, weekly word packs, and announcements."
+    },
+    "/users/{userId}/session_history/{recordId}": {
+      "schema": { "$ref": "#/entities/SessionRecord" },
+      "description": "Chronological historical performance entries."
+    },
+    "/users/{userId}/weekly_progress/{weekId}": {
+      "schema": { "$ref": "#/entities/WeeklyProgress" },
+      "description": "Weekly 200-word mastery and 3-session completion progress."
+    },
+    "/users/{userId}/custom_roleplays/{roleplayId}": {
+      "schema": { "$ref": "#/entities/CustomRoleplay" },
+      "description": "AI or offline-generated interactive roleplay scripts."
+    },
+    "/users/{userId}/custom_quizzes/{quizId}": {
+      "schema": { "$ref": "#/entities/CustomQuiz" },
+      "description": "Custom or AI-generated Kahoot quizzes."
+    },
+    "/users/{userId}/custom_decks/{deckId}": {
+      "schema": { "$ref": "#/entities/CustomDeck" },
+      "description": "User-created flashcard study decks."
+    },
+    "/users/{userId}/card_mastery/{cardKey}": {
+      "schema": { "$ref": "#/entities/CardMastery" },
+      "description": "Mastery and review count status for individual flashcards."
+    },
+    "/quiz_rooms/{roomCode}": {
+      "schema": { "$ref": "#/entities/QuizRoom" },
+      "description": "Live multiplayer Kahoot-style quiz rooms."
+    },
+    "/quiz_rooms/{roomCode}/players/{playerId}": {
+      "schema": { "$ref": "#/entities/RoomPlayer" },
+      "description": "Participants joined to a live quiz room."
+    },
+    "/quiz_rooms/{roomCode}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/RoomChatMessage" },
+      "description": "Real-time in-game chat messages and quick reactions during live quiz games."
+    }
+  }
+}

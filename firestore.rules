@@ -1,0 +1,698 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isBootstrappedTutor() {
+      return isSignedIn() &&
+             'email_verified' in request.auth.token &&
+             request.auth.token.email_verified == true &&
+             'email' in request.auth.token &&
+             request.auth.token.email == 'radwana423@gmail.com';
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidRoomCode(code) {
+      return code is string && code.size() == 6 && code.matches('^[A-Z0-9]{6}$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidCefrLevel(level) {
+      return level is string && level in ['A1', 'A2', 'B1', 'B2'];
+    }
+
+    function isValidRoomStatus(status) {
+      return status is string && status in ['LOBBY', 'QUESTION', 'REVEAL', 'PODIUM'];
+    }
+
+    function isValidActivityType(t) {
+      return t is string && t in ['QUIZ', 'PUZZLE', 'CARDS', 'GUESSING', 'ROLEPLAY', 'AUDIOBOOK', 'WEEKLY_SESSION', 'GAME'];
+    }
+
+    function isValidRoleplaySource(src) {
+      return src is string && src in ['AI', 'OFFLINE'];
+    }
+
+    function isValidClubContentType(t) {
+      return t is string && t in ['QUIZ', 'DECK', 'PUZZLE', 'ROLEPLAY', 'WEEKLY_PACK', 'ANNOUNCEMENT'];
+    }
+
+    function isValidUserProfile(data) {
+      return data.userId is string &&
+             data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.displayName is string &&
+             data.displayName.size() >= 1 && data.displayName.size() <= 50 &&
+             (!('learningLevel' in data) || isValidCefrLevel(data.learningLevel)) &&
+             data.xp is int && data.xp >= 0 && data.xp <= 10000000 &&
+             data.streak is int && data.streak >= 0 && data.streak <= 10000 &&
+             data.quizzesHosted is int && data.quizzesHosted >= 0 && data.quizzesHosted <= 100000 &&
+             (!('quizzesPlayed' in data) || (data.quizzesPlayed is int && data.quizzesPlayed >= 0 && data.quizzesPlayed <= 100000)) &&
+             data.cardsMastered is int && data.cardsMastered >= 0 && data.cardsMastered <= 100000 &&
+             (!('sessionsCompleted' in data) || (data.sessionsCompleted is int && data.sessionsCompleted >= 0 && data.sessionsCompleted <= 10000)) &&
+             (!('audiobooksFinished' in data) || (data.audiobooksFinished is int && data.audiobooksFinished >= 0 && data.audiobooksFinished <= 10000)) &&
+             (!('weeklyWordsMastered' in data) || (data.weeklyWordsMastered is int && data.weeklyWordsMastered >= 0 && data.weeklyWordsMastered <= 100000)) &&
+             (!('bestLiveQuizScore' in data) || (data.bestLiveQuizScore is int && data.bestLiveQuizScore >= 0 && data.bestLiveQuizScore <= 500000)) &&
+             (!('earnedBadges' in data) || (
+               data.earnedBadges is list &&
+               data.earnedBadges.size() <= 30 &&
+               (data.earnedBadges.size() == 0 || data.earnedBadges[0] is string)
+             )) &&
+             (!('pinnedEvidenceIds' in data) || (
+               data.pinnedEvidenceIds is list &&
+               data.pinnedEvidenceIds.size() <= 50 &&
+               (data.pinnedEvidenceIds.size() == 0 || data.pinnedEvidenceIds[0] is string)
+             )) &&
+             (!('teamId' in data) || (data.teamId is string && data.teamId.size() <= 128)) &&
+             (!('teamName' in data) || (data.teamName is string && data.teamName.size() <= 50)) &&
+             (!('accountRole' in data) || data.accountRole in ['STUDENT', 'TUTOR']) &&
+             (!('tutorUid' in data) || (data.tutorUid is string && data.tutorUid.size() <= 128)) &&
+             (!('tutorName' in data) || (data.tutorName is string && data.tutorName.size() <= 50)) &&
+             (!('lastActiveEpochDay' in data) || (data.lastActiveEpochDay is int && data.lastActiveEpochDay >= 0 && data.lastActiveEpochDay <= 100000)) &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidTutorStudentProgress(data) {
+      return data.studentUid is string && data.studentUid.size() >= 1 && data.studentUid.size() <= 128 &&
+             data.tutorUid is string && data.tutorUid.size() >= 1 && data.tutorUid.size() <= 128 &&
+             data.studentName is string && data.studentName.size() >= 1 && data.studentName.size() <= 50 &&
+             isValidCefrLevel(data.learningLevel) &&
+             data.xp is int && data.xp >= 0 && data.xp <= 10000000 &&
+             data.streak is int && data.streak >= 0 && data.streak <= 10000 &&
+             data.sessionsCompleted is int && data.sessionsCompleted >= 0 && data.sessionsCompleted <= 10000 &&
+             data.weeklyWordsMastered is int && data.weeklyWordsMastered >= 0 && data.weeklyWordsMastered <= 100000 &&
+             data.quizzesPlayed is int && data.quizzesPlayed >= 0 && data.quizzesPlayed <= 100000 &&
+             data.quizzesHosted is int && data.quizzesHosted >= 0 && data.quizzesHosted <= 100000 &&
+             data.bestLiveQuizScore is int && data.bestLiveQuizScore >= 0 && data.bestLiveQuizScore <= 500000 &&
+             data.cardsMastered is int && data.cardsMastered >= 0 && data.cardsMastered <= 100000 &&
+             data.decksCreated is int && data.decksCreated >= 0 && data.decksCreated <= 1000 &&
+             data.audiobooksFinished is int && data.audiobooksFinished >= 0 && data.audiobooksFinished <= 10000 &&
+             data.teamName is string && data.teamName.size() <= 50 &&
+             data.earnedBadges is list && data.earnedBadges.size() <= 30 &&
+             (data.earnedBadges.size() == 0 || data.earnedBadges[0] is string) &&
+             data.recentActivities is list && data.recentActivities.size() <= 10 &&
+             (data.recentActivities.size() == 0 || data.recentActivities[0] is map) &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidTeam(data) {
+      return data.visibility == 'CLUB' &&
+             data.name is string && data.name.size() >= 2 && data.name.size() <= 50 &&
+             isValidCefrLevel(data.cefrLevel) &&
+             data.motto is string && data.motto.size() <= 120 &&
+             data.accentColor is string && data.accentColor in ['INDIGO', 'CORAL', 'AMBER', 'MINT', 'PURPLE'] &&
+             data.leaderUid is string && data.leaderUid.size() >= 1 && data.leaderUid.size() <= 128 &&
+             data.leaderName is string && data.leaderName.size() >= 1 && data.leaderName.size() <= 50 &&
+             data.channelKind is string && data.channelKind in ['TEACHER_HUB', 'TEAM'] &&
+             data.memberCount is int && data.memberCount >= 0 && data.memberCount <= 10000 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidChatMessage(data) {
+      return data.teamId is string && data.teamId.size() >= 1 && data.teamId.size() <= 128 &&
+             data.senderUid is string && data.senderUid.size() >= 1 && data.senderUid.size() <= 128 &&
+             data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 50 &&
+             data.senderTeamName is string && data.senderTeamName.size() <= 50 &&
+             data.senderRole is string && data.senderRole in ['ADMIN', 'TEACHER', 'PLAYER'] &&
+             data.text is string && data.text.size() >= 1 && data.text.size() <= 500 &&
+             data.pinned is bool &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidClubContent(data) {
+      return data.visibility == 'CLUB' &&
+             data.authorUid is string && data.authorUid.size() >= 1 && data.authorUid.size() <= 128 &&
+             data.authorName is string && data.authorName.size() >= 1 && data.authorName.size() <= 50 &&
+             isValidClubContentType(data.contentType) &&
+             data.title is string && data.title.size() >= 2 && data.title.size() <= 80 &&
+             data.description is string && data.description.size() <= 300 &&
+             isValidCefrLevel(data.cefrLevel) &&
+             data.topic is string && data.topic.size() <= 50 &&
+             data.puzzleKind is string && data.puzzleKind in ['', 'SCRAMBLE', 'GAP_FILL', 'MATCH'] &&
+             data.tokens is list && data.tokens.size() <= 30 &&
+             (data.tokens.size() == 0 || data.tokens[0] is string) &&
+             data.clozeBefore is string && data.clozeBefore.size() <= 200 &&
+             data.clozeAfter is string && data.clozeAfter.size() <= 200 &&
+             data.clozeAnswer is string && data.clozeAnswer.size() <= 50 &&
+             data.clozeOptions is list && data.clozeOptions.size() <= 6 &&
+             (data.clozeOptions.size() == 0 || data.clozeOptions[0] is string) &&
+             data.matchPairs is list && data.matchPairs.size() <= 10 &&
+             (data.matchPairs.size() == 0 || data.matchPairs[0] is string) &&
+             data.questions is list && data.questions.size() <= 20 &&
+             (data.questions.size() == 0 || data.questions[0] is map) &&
+             data.cards is list && data.cards.size() <= 40 &&
+             (data.cards.size() == 0 || data.cards[0] is map) &&
+             data.roleAName is string && data.roleAName.size() <= 40 &&
+             data.roleBName is string && data.roleBName.size() <= 40 &&
+             data.goal is string && data.goal.size() <= 200 &&
+             data.lines is list && data.lines.size() <= 20 &&
+             (data.lines.size() == 0 || data.lines[0] is map) &&
+             data.plotTwists is list && data.plotTwists.size() <= 10 &&
+             (data.plotTwists.size() == 0 || data.plotTwists[0] is string) &&
+             data.weekNumber is int && data.weekNumber >= 0 && data.weekNumber <= 52 &&
+             data.sessionNumber is int && data.sessionNumber >= 0 && data.sessionNumber <= 3 &&
+             data.vocabWords is list && data.vocabWords.size() <= 30 &&
+             (data.vocabWords.size() == 0 || data.vocabWords[0] is map) &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidSessionRecord(data) {
+      return isValidActivityType(data.activityType) &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 100 &&
+             isValidCefrLevel(data.cefrLevel) &&
+             data.score is int && data.score >= 0 && data.score <= 500000 &&
+             data.accuracyPct is int && data.accuracyPct >= 0 && data.accuracyPct <= 100 &&
+             data.wordsPracticed is int && data.wordsPracticed >= 0 && data.wordsPracticed <= 200 &&
+             data.durationMinutes is int && data.durationMinutes >= 0 && data.durationMinutes <= 300 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidWeeklyProgress(data) {
+      return data.weekNumber is int && data.weekNumber >= 1 && data.weekNumber <= 52 &&
+             data.masteredWordIds is list && data.masteredWordIds.size() <= 200 &&
+             (data.masteredWordIds.size() == 0 || data.masteredWordIds[0] is string) &&
+             data.completedSessions is list && data.completedSessions.size() <= 3 &&
+             (data.completedSessions.size() == 0 || data.completedSessions[0] is int) &&
+             data.gamesPlayed is int && data.gamesPlayed >= 0 && data.gamesPlayed <= 100000 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidCustomRoleplay(data) {
+      return data.title is string && data.title.size() >= 1 && data.title.size() <= 80 &&
+             data.setting is string && data.setting.size() >= 1 && data.setting.size() <= 160 &&
+             isValidCefrLevel(data.cefrLevel) &&
+             data.roleAName is string && data.roleAName.size() >= 1 && data.roleAName.size() <= 40 &&
+             data.roleBName is string && data.roleBName.size() >= 1 && data.roleBName.size() <= 40 &&
+             data.goal is string && data.goal.size() >= 1 && data.goal.size() <= 200 &&
+             isValidRoleplaySource(data.source) &&
+             data.lines is list && data.lines.size() >= 1 && data.lines.size() <= 20 &&
+             data.lines[0] is map &&
+             data.plotTwists is list && data.plotTwists.size() <= 10 &&
+             (data.plotTwists.size() == 0 || data.plotTwists[0] is string) &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidCustomQuiz(data) {
+      return data.title is string && data.title.size() >= 1 && data.title.size() <= 80 &&
+             data.topic is string && data.topic.size() >= 1 && data.topic.size() <= 40 &&
+             isValidCefrLevel(data.cefrLevel) &&
+             data.questions is list && data.questions.size() >= 1 && data.questions.size() <= 20 &&
+             data.questions[0] is map &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidCustomDeck(data) {
+      return data.title is string && data.title.size() >= 1 && data.title.size() <= 80 &&
+             isValidCefrLevel(data.cefrLevel) &&
+             data.cards is list && data.cards.size() >= 1 && data.cards.size() <= 40 &&
+             data.cards[0] is map &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidCardMastery(data) {
+      return data.deckId is string && data.deckId.size() >= 1 && data.deckId.size() <= 80 &&
+             data.mastered is bool &&
+             data.reviewCount is int && data.reviewCount >= 0 && data.reviewCount <= 100000 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidQuizRoom(data) {
+      return data.hostUid is string && data.hostUid.size() >= 1 && data.hostUid.size() <= 128 &&
+             data.hostName is string && data.hostName.size() >= 1 && data.hostName.size() <= 50 &&
+             data.quizTitle is string && data.quizTitle.size() >= 1 && data.quizTitle.size() <= 80 &&
+             isValidCefrLevel(data.cefrLevel) &&
+             isValidRoomStatus(data.status) &&
+             data.currentQuestionIndex is int && data.currentQuestionIndex >= 0 && data.currentQuestionIndex <= 20 &&
+             data.questionStartedAtMs is int && data.questionStartedAtMs >= 0 &&
+             data.questions is list && data.questions.size() >= 1 && data.questions.size() <= 20 &&
+             data.questions[0] is map &&
+             data.leaderboard is list && data.leaderboard.size() <= 25 &&
+             (data.leaderboard.size() == 0 || data.leaderboard[0] is map) &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidRoomPlayer(data) {
+      return data.playerUid is string && data.playerUid.size() >= 1 && data.playerUid.size() <= 128 &&
+             isValidRoomCode(data.roomCode) &&
+             data.hostUid is string && data.hostUid.size() >= 1 && data.hostUid.size() <= 128 &&
+             data.nickname is string && data.nickname.size() >= 1 && data.nickname.size() <= 24 &&
+             data.avatarColor is string && data.avatarColor.size() >= 1 && data.avatarColor.size() <= 20 &&
+             data.score is int && data.score >= 0 && data.score <= 500000 &&
+             data.streak is int && data.streak >= 0 && data.streak <= 50 &&
+             data.lastAnswerIndex is int && data.lastAnswerIndex >= -1 && data.lastAnswerIndex <= 3 &&
+             data.lastAnsweredQuestion is int && data.lastAnsweredQuestion >= -1 && data.lastAnsweredQuestion <= 20 &&
+             data.lastAnswerCorrect is bool &&
+             data.lastPointsEarned is int && data.lastPointsEarned >= 0 && data.lastPointsEarned <= 2000 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidRoomChatMessage(data) {
+      return isValidRoomCode(data.roomCode) &&
+             data.senderUid is string && data.senderUid.size() >= 1 && data.senderUid.size() <= 128 &&
+             data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 50 &&
+             data.avatarColor is string && data.avatarColor.size() >= 1 && data.avatarColor.size() <= 20 &&
+             data.hostSender is bool &&
+             data.messageType is string && data.messageType in ['TEXT', 'REACTION'] &&
+             data.text is string && data.text.size() >= 1 && data.text.size() <= 240 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidScoreRecord(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.playerName is string && data.playerName.size() >= 1 && data.playerName.size() <= 50 &&
+             data.avatarColor is string && data.avatarColor.size() >= 1 && data.avatarColor.size() <= 24 &&
+             data.quizTitle is string && data.quizTitle.size() >= 1 && data.quizTitle.size() <= 100 &&
+             isValidCefrLevel(data.cefrLevel) &&
+             data.score is int && data.score >= 0 && data.score <= 500000 &&
+             data.accuracyPct is int && data.accuracyPct >= 0 && data.accuracyPct <= 100 &&
+             data.streak is int && data.streak >= 0 && data.streak <= 100 &&
+             data.gameMode is string && data.gameMode.size() >= 1 && data.gameMode.size() <= 40 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    match /tutors/{tutorUid} {
+      match /students/{studentUid} {
+        allow get: if isValidId(tutorUid) &&
+                      isValidId(studentUid) &&
+                      isSignedIn() &&
+                      (request.auth.uid == tutorUid || request.auth.uid == studentUid);
+
+        allow list: if isSignedIn() && request.auth.uid == tutorUid;
+
+        allow create: if isValidId(tutorUid) &&
+                         isValidId(studentUid) &&
+                         isOwner(studentUid) &&
+                         incoming().studentUid == studentUid &&
+                         incoming().tutorUid == tutorUid &&
+                         incoming().keys().hasAll(['studentUid', 'tutorUid', 'studentName', 'learningLevel', 'xp', 'streak', 'sessionsCompleted', 'weeklyWordsMastered', 'quizzesPlayed', 'quizzesHosted', 'bestLiveQuizScore', 'cardsMastered', 'decksCreated', 'audiobooksFinished', 'teamName', 'earnedBadges', 'recentActivities', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['studentUid', 'tutorUid', 'studentName', 'learningLevel', 'xp', 'streak', 'sessionsCompleted', 'weeklyWordsMastered', 'quizzesPlayed', 'quizzesHosted', 'bestLiveQuizScore', 'cardsMastered', 'decksCreated', 'audiobooksFinished', 'teamName', 'earnedBadges', 'recentActivities', 'createdAt', 'updatedAt']) &&
+                         isValidTutorStudentProgress(incoming());
+
+        allow update: if isValidId(tutorUid) &&
+                         isValidId(studentUid) &&
+                         isOwner(studentUid) &&
+                         isValidTutorStudentProgress(incoming()) &&
+                         incoming().studentUid == existing().studentUid &&
+                         incoming().tutorUid == existing().tutorUid &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['studentName', 'learningLevel', 'xp', 'streak', 'sessionsCompleted', 'weeklyWordsMastered', 'quizzesPlayed', 'quizzesHosted', 'bestLiveQuizScore', 'cardsMastered', 'decksCreated', 'audiobooksFinished', 'teamName', 'earnedBadges', 'recentActivities', 'updatedAt']);
+
+        allow delete: if isValidId(tutorUid) &&
+                         isValidId(studentUid) &&
+                         isSignedIn() &&
+                         (request.auth.uid == studentUid || request.auth.uid == tutorUid);
+      }
+    }
+
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (
+        isOwner(userId) ||
+        isBootstrappedTutor() ||
+        (isSignedIn() && existing().tutorUid == request.auth.uid)
+      );
+      allow list: if (isBootstrappedTutor() && existing().accountRole == 'STUDENT') ||
+                     (isSignedIn() && existing().tutorUid == request.auth.uid);
+
+      allow create: if isValidId(userId) &&
+                       isOwner(userId) &&
+                       incoming().userId == request.auth.uid &&
+                       (!('accountRole' in incoming()) || incoming().accountRole == 'STUDENT' || isBootstrappedTutor()) &&
+                       incoming().keys().hasAll(['userId', 'displayName', 'learningLevel', 'xp', 'streak', 'quizzesHosted', 'quizzesPlayed', 'cardsMastered', 'sessionsCompleted', 'audiobooksFinished', 'weeklyWordsMastered', 'bestLiveQuizScore', 'earnedBadges', 'teamId', 'teamName', 'lastActiveEpochDay', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'displayName', 'learningLevel', 'xp', 'streak', 'quizzesHosted', 'quizzesPlayed', 'cardsMastered', 'sessionsCompleted', 'audiobooksFinished', 'weeklyWordsMastered', 'bestLiveQuizScore', 'earnedBadges', 'pinnedEvidenceIds', 'teamId', 'teamName', 'accountRole', 'tutorUid', 'tutorName', 'lastActiveEpochDay', 'createdAt', 'updatedAt']) &&
+                       isValidUserProfile(incoming());
+
+      allow update: if isValidId(userId) &&
+                       isOwner(userId) &&
+                       isValidUserProfile(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       (!('accountRole' in incoming()) || incoming().accountRole == 'STUDENT' || isBootstrappedTutor()) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'learningLevel', 'xp', 'streak', 'quizzesHosted', 'quizzesPlayed', 'cardsMastered', 'sessionsCompleted', 'audiobooksFinished', 'weeklyWordsMastered', 'bestLiveQuizScore', 'earnedBadges', 'pinnedEvidenceIds', 'teamId', 'teamName', 'accountRole', 'tutorUid', 'tutorName', 'lastActiveEpochDay', 'updatedAt']);
+
+      allow delete: if isValidId(userId) && isOwner(userId);
+
+      match /session_history/{recordId} {
+        allow get: if isValidId(recordId) && (isOwner(userId) || isBootstrappedTutor());
+        allow list: if isOwner(userId) || isBootstrappedTutor();
+
+        allow create: if isValidId(recordId) &&
+                         isOwner(userId) &&
+                         incoming().keys().hasAll(['activityType', 'title', 'cefrLevel', 'score', 'accuracyPct', 'wordsPracticed', 'durationMinutes', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['activityType', 'title', 'cefrLevel', 'score', 'accuracyPct', 'wordsPracticed', 'durationMinutes', 'createdAt', 'updatedAt']) &&
+                         isValidSessionRecord(incoming());
+
+        allow update: if false;
+        allow delete: if isValidId(recordId) && isOwner(userId);
+      }
+
+      match /weekly_progress/{weekId} {
+        allow get: if isValidId(weekId) && (isOwner(userId) || isBootstrappedTutor());
+        allow list: if isOwner(userId) || isBootstrappedTutor();
+
+        allow create: if isValidId(weekId) &&
+                         isOwner(userId) &&
+                         incoming().keys().hasAll(['weekNumber', 'masteredWordIds', 'completedSessions', 'gamesPlayed', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['weekNumber', 'masteredWordIds', 'completedSessions', 'gamesPlayed', 'createdAt', 'updatedAt']) &&
+                         isValidWeeklyProgress(incoming());
+
+        allow update: if isValidId(weekId) &&
+                         isOwner(userId) &&
+                         isValidWeeklyProgress(incoming()) &&
+                         incoming().weekNumber == existing().weekNumber &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['masteredWordIds', 'completedSessions', 'gamesPlayed', 'updatedAt']);
+
+        allow delete: if isValidId(weekId) && isOwner(userId);
+      }
+
+      match /custom_roleplays/{roleplayId} {
+        allow get: if isValidId(roleplayId) && isOwner(userId);
+        allow list: if isOwner(userId);
+
+        allow create: if isValidId(roleplayId) &&
+                         isOwner(userId) &&
+                         incoming().keys().hasAll(['title', 'setting', 'cefrLevel', 'roleAName', 'roleBName', 'goal', 'source', 'lines', 'plotTwists', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['title', 'setting', 'cefrLevel', 'roleAName', 'roleBName', 'goal', 'source', 'lines', 'plotTwists', 'createdAt', 'updatedAt']) &&
+                         isValidCustomRoleplay(incoming());
+
+        allow update: if isValidId(roleplayId) &&
+                         isOwner(userId) &&
+                         isValidCustomRoleplay(incoming()) &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['title', 'setting', 'cefrLevel', 'roleAName', 'roleBName', 'goal', 'source', 'lines', 'plotTwists', 'updatedAt']);
+
+        allow delete: if isValidId(roleplayId) && isOwner(userId);
+      }
+
+      match /custom_quizzes/{quizId} {
+        allow get: if isValidId(quizId) && isOwner(userId);
+        allow list: if isOwner(userId);
+
+        allow create: if isValidId(quizId) &&
+                         isOwner(userId) &&
+                         incoming().keys().hasAll(['title', 'topic', 'cefrLevel', 'questions', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['title', 'topic', 'cefrLevel', 'questions', 'createdAt', 'updatedAt']) &&
+                         isValidCustomQuiz(incoming());
+
+        allow update: if isValidId(quizId) &&
+                         isOwner(userId) &&
+                         isValidCustomQuiz(incoming()) &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['title', 'topic', 'cefrLevel', 'questions', 'updatedAt']);
+
+        allow delete: if isValidId(quizId) && isOwner(userId);
+      }
+
+      match /custom_decks/{deckId} {
+        allow get: if isValidId(deckId) && (isOwner(userId) || isBootstrappedTutor());
+        allow list: if isOwner(userId) || isBootstrappedTutor();
+
+        allow create: if isValidId(deckId) &&
+                         isOwner(userId) &&
+                         incoming().keys().hasAll(['title', 'cefrLevel', 'cards', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['title', 'cefrLevel', 'cards', 'createdAt', 'updatedAt']) &&
+                         isValidCustomDeck(incoming());
+
+        allow update: if isValidId(deckId) &&
+                         isOwner(userId) &&
+                         isValidCustomDeck(incoming()) &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['title', 'cefrLevel', 'cards', 'updatedAt']);
+
+        allow delete: if isValidId(deckId) && isOwner(userId);
+      }
+
+      match /card_mastery/{cardKey} {
+        allow get: if isValidId(cardKey) && (isOwner(userId) || isBootstrappedTutor());
+        allow list: if isOwner(userId) || isBootstrappedTutor();
+
+        allow create: if isValidId(cardKey) &&
+                         isOwner(userId) &&
+                         incoming().keys().hasAll(['deckId', 'mastered', 'reviewCount', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['deckId', 'mastered', 'reviewCount', 'createdAt', 'updatedAt']) &&
+                         isValidCardMastery(incoming());
+
+        allow update: if isValidId(cardKey) &&
+                         isOwner(userId) &&
+                         isValidCardMastery(incoming()) &&
+                         incoming().deckId == existing().deckId &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['mastered', 'reviewCount', 'updatedAt']);
+
+        allow delete: if isValidId(cardKey) && isOwner(userId);
+      }
+    }
+
+    match /teams/{teamId} {
+      allow get: if isValidId(teamId) && isSignedIn() && existing().visibility == 'CLUB';
+      allow list: if isSignedIn() && existing().visibility == 'CLUB';
+
+      allow create: if isValidId(teamId) &&
+                       isSignedIn() &&
+                       incoming().leaderUid == request.auth.uid &&
+                       (incoming().channelKind == 'TEAM' || isBootstrappedTutor()) &&
+                       incoming().keys().hasAll(['visibility', 'name', 'cefrLevel', 'motto', 'accentColor', 'leaderUid', 'leaderName', 'channelKind', 'memberCount', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['visibility', 'name', 'cefrLevel', 'motto', 'accentColor', 'leaderUid', 'leaderName', 'channelKind', 'memberCount', 'createdAt', 'updatedAt']) &&
+                       isValidTeam(incoming());
+
+      allow update: if isValidId(teamId) &&
+                       isSignedIn() &&
+                       isValidTeam(incoming()) &&
+                       incoming().visibility == existing().visibility &&
+                       incoming().leaderUid == existing().leaderUid &&
+                       incoming().channelKind == existing().channelKind &&
+                       incoming().createdAt == existing().createdAt &&
+                       (
+                         ((existing().leaderUid == request.auth.uid || isBootstrappedTutor()) &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['name', 'cefrLevel', 'motto', 'accentColor', 'memberCount', 'updatedAt'])) ||
+                         (incoming().diff(existing()).affectedKeys().hasOnly(['memberCount', 'updatedAt']) &&
+                          incoming().memberCount <= existing().memberCount + 1 &&
+                          incoming().memberCount >= existing().memberCount - 1)
+                       );
+
+      allow delete: if isValidId(teamId) &&
+                       isSignedIn() &&
+                       (existing().leaderUid == request.auth.uid || isBootstrappedTutor());
+
+      match /messages/{messageId} {
+        allow get: if isValidId(teamId) &&
+                      isValidId(messageId) &&
+                      isSignedIn() &&
+                      existing().teamId == teamId;
+
+        allow list: if isSignedIn() && existing().teamId == teamId;
+
+        allow create: if isValidId(teamId) &&
+                         isValidId(messageId) &&
+                         isSignedIn() &&
+                         incoming().senderUid == request.auth.uid &&
+                         incoming().teamId == teamId &&
+                         incoming().keys().hasAll(['teamId', 'senderUid', 'senderName', 'senderTeamName', 'senderRole', 'text', 'pinned', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['teamId', 'senderUid', 'senderName', 'senderTeamName', 'senderRole', 'text', 'pinned', 'createdAt', 'updatedAt']) &&
+                         isValidChatMessage(incoming()) &&
+                         exists(/databases/$(database)/documents/teams/$(teamId)) &&
+                         (
+                           incoming().senderRole == 'PLAYER' ||
+                           (incoming().senderRole == 'TEACHER' && (isBootstrappedTutor() || get(/databases/$(database)/documents/teams/$(teamId)).data.leaderUid == request.auth.uid))
+                         ) &&
+                         (!incoming().pinned || isBootstrappedTutor() || get(/databases/$(database)/documents/teams/$(teamId)).data.leaderUid == request.auth.uid);
+
+        allow update: if isValidId(teamId) &&
+                         isValidId(messageId) &&
+                         isSignedIn() &&
+                         (isBootstrappedTutor() || get(/databases/$(database)/documents/teams/$(teamId)).data.leaderUid == request.auth.uid) &&
+                         isValidChatMessage(incoming()) &&
+                         incoming().teamId == existing().teamId &&
+                         incoming().senderUid == existing().senderUid &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['pinned', 'updatedAt']);
+
+        allow delete: if isValidId(teamId) &&
+                         isValidId(messageId) &&
+                         isSignedIn() &&
+                         (existing().senderUid == request.auth.uid || isBootstrappedTutor());
+      }
+    }
+
+    match /club_content/{contentId} {
+      allow get: if isValidId(contentId) && isSignedIn() && existing().visibility == 'CLUB';
+      allow list: if isSignedIn() && existing().visibility == 'CLUB';
+
+      allow create: if isValidId(contentId) &&
+                       isBootstrappedTutor() &&
+                       incoming().authorUid == request.auth.uid &&
+                       incoming().keys().hasAll(['visibility', 'authorUid', 'authorName', 'contentType', 'title', 'description', 'cefrLevel', 'topic', 'puzzleKind', 'tokens', 'clozeBefore', 'clozeAfter', 'clozeAnswer', 'clozeOptions', 'matchPairs', 'questions', 'cards', 'roleAName', 'roleBName', 'goal', 'lines', 'plotTwists', 'weekNumber', 'sessionNumber', 'vocabWords', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['visibility', 'authorUid', 'authorName', 'contentType', 'title', 'description', 'cefrLevel', 'topic', 'puzzleKind', 'tokens', 'clozeBefore', 'clozeAfter', 'clozeAnswer', 'clozeOptions', 'matchPairs', 'questions', 'cards', 'roleAName', 'roleBName', 'goal', 'lines', 'plotTwists', 'weekNumber', 'sessionNumber', 'vocabWords', 'createdAt', 'updatedAt']) &&
+                       isValidClubContent(incoming());
+
+      allow update: if isValidId(contentId) &&
+                       isBootstrappedTutor() &&
+                       isValidClubContent(incoming()) &&
+                       incoming().authorUid == existing().authorUid &&
+                       incoming().visibility == existing().visibility &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['contentType', 'title', 'description', 'cefrLevel', 'topic', 'puzzleKind', 'tokens', 'clozeBefore', 'clozeAfter', 'clozeAnswer', 'clozeOptions', 'matchPairs', 'questions', 'cards', 'roleAName', 'roleBName', 'goal', 'lines', 'plotTwists', 'weekNumber', 'sessionNumber', 'vocabWords', 'updatedAt']);
+
+      allow delete: if isValidId(contentId) && isBootstrappedTutor();
+    }
+
+    match /quiz_rooms/{roomCode} {
+      allow get: if isValidRoomCode(roomCode) && isSignedIn();
+      allow list: if isSignedIn() && existing().hostUid == request.auth.uid;
+
+      allow create: if isValidRoomCode(roomCode) &&
+                       isSignedIn() &&
+                       incoming().hostUid == request.auth.uid &&
+                       incoming().status == 'LOBBY' &&
+                       incoming().currentQuestionIndex == 0 &&
+                       incoming().keys().hasAll(['hostUid', 'hostName', 'quizTitle', 'cefrLevel', 'status', 'currentQuestionIndex', 'questionStartedAtMs', 'questions', 'leaderboard', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['hostUid', 'hostName', 'quizTitle', 'cefrLevel', 'status', 'currentQuestionIndex', 'questionStartedAtMs', 'questions', 'leaderboard', 'createdAt', 'updatedAt']) &&
+                       isValidQuizRoom(incoming());
+
+      allow update: if isValidRoomCode(roomCode) &&
+                       isSignedIn() &&
+                       isValidQuizRoom(incoming()) &&
+                       existing().hostUid == request.auth.uid &&
+                       existing().status != 'PODIUM' &&
+                       incoming().hostUid == existing().hostUid &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['status', 'currentQuestionIndex', 'questionStartedAtMs', 'leaderboard', 'updatedAt']);
+
+      allow delete: if isValidRoomCode(roomCode) &&
+                       isSignedIn() &&
+                       existing().hostUid == request.auth.uid;
+
+      match /players/{playerId} {
+        allow get: if isValidRoomCode(roomCode) &&
+                      isValidId(playerId) &&
+                      isSignedIn() &&
+                      (request.auth.uid == playerId || existing().hostUid == request.auth.uid);
+
+        allow list: if isValidRoomCode(roomCode) &&
+                       isSignedIn() &&
+                       (existing().hostUid == request.auth.uid || existing().playerUid == request.auth.uid);
+
+        allow create: if isValidRoomCode(roomCode) &&
+                         isValidId(playerId) &&
+                         isSignedIn() &&
+                         request.auth.uid == playerId &&
+                         incoming().playerUid == request.auth.uid &&
+                         incoming().roomCode == roomCode &&
+                         incoming().score == 0 &&
+                         incoming().streak == 0 &&
+                         incoming().lastAnswerIndex == -1 &&
+                         incoming().lastAnsweredQuestion == -1 &&
+                         incoming().keys().hasAll(['playerUid', 'roomCode', 'hostUid', 'nickname', 'avatarColor', 'score', 'streak', 'lastAnswerIndex', 'lastAnsweredQuestion', 'lastAnswerCorrect', 'lastPointsEarned', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['playerUid', 'roomCode', 'hostUid', 'nickname', 'avatarColor', 'score', 'streak', 'lastAnswerIndex', 'lastAnsweredQuestion', 'lastAnswerCorrect', 'lastPointsEarned', 'createdAt', 'updatedAt']) &&
+                         isValidRoomPlayer(incoming()) &&
+                         exists(/databases/$(database)/documents/quiz_rooms/$(roomCode)) &&
+                         get(/databases/$(database)/documents/quiz_rooms/$(roomCode)).data.hostUid == incoming().hostUid &&
+                         get(/databases/$(database)/documents/quiz_rooms/$(roomCode)).data.status != 'PODIUM';
+
+        allow update: if isValidRoomCode(roomCode) &&
+                         isValidId(playerId) &&
+                         isSignedIn() &&
+                         isValidRoomPlayer(incoming()) &&
+                         request.auth.uid == playerId &&
+                         incoming().playerUid == existing().playerUid &&
+                         incoming().roomCode == existing().roomCode &&
+                         incoming().hostUid == existing().hostUid &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['nickname', 'avatarColor', 'score', 'streak', 'lastAnswerIndex', 'lastAnsweredQuestion', 'lastAnswerCorrect', 'lastPointsEarned', 'updatedAt']) &&
+                         get(/databases/$(database)/documents/quiz_rooms/$(roomCode)).data.status != 'PODIUM';
+
+        allow delete: if isValidRoomCode(roomCode) &&
+                         isValidId(playerId) &&
+                         isSignedIn() &&
+                         (request.auth.uid == playerId || existing().hostUid == request.auth.uid);
+      }
+
+      match /messages/{messageId} {
+        allow get: if isValidRoomCode(roomCode) &&
+                      isValidId(messageId) &&
+                      isSignedIn() &&
+                      existing().roomCode == roomCode;
+
+        allow list: if isValidRoomCode(roomCode) &&
+                       isSignedIn() &&
+                       existing().roomCode == roomCode;
+
+        allow create: if isValidRoomCode(roomCode) &&
+                         isValidId(messageId) &&
+                         isSignedIn() &&
+                         incoming().senderUid == request.auth.uid &&
+                         incoming().roomCode == roomCode &&
+                         incoming().keys().hasAll(['roomCode', 'senderUid', 'senderName', 'avatarColor', 'hostSender', 'messageType', 'text', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['roomCode', 'senderUid', 'senderName', 'avatarColor', 'hostSender', 'messageType', 'text', 'createdAt', 'updatedAt']) &&
+                         isValidRoomChatMessage(incoming()) &&
+                         exists(/databases/$(database)/documents/quiz_rooms/$(roomCode)) &&
+                         (!incoming().hostSender || get(/databases/$(database)/documents/quiz_rooms/$(roomCode)).data.hostUid == request.auth.uid);
+
+        allow update: if false;
+
+        allow delete: if isValidRoomCode(roomCode) &&
+                         isValidId(messageId) &&
+                         isSignedIn() &&
+                         (existing().senderUid == request.auth.uid || get(/databases/$(database)/documents/quiz_rooms/$(roomCode)).data.hostUid == request.auth.uid);
+      }
+    }
+
+    match /scores/{scoreId} {
+      allow get, list: if isSignedIn();
+
+      allow create: if isValidId(scoreId) &&
+                       isSignedIn() &&
+                       incoming().userId == request.auth.uid &&
+                       incoming().keys().hasAll(['userId', 'playerName', 'avatarColor', 'quizTitle', 'cefrLevel', 'score', 'accuracyPct', 'streak', 'gameMode', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'playerName', 'avatarColor', 'quizTitle', 'cefrLevel', 'score', 'accuracyPct', 'streak', 'gameMode', 'createdAt', 'updatedAt']) &&
+                       isValidScoreRecord(incoming());
+
+      allow update: if isValidId(scoreId) &&
+                       isSignedIn() &&
+                       isOwner(existing().userId) &&
+                       isValidScoreRecord(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['playerName', 'avatarColor', 'quizTitle', 'cefrLevel', 'score', 'accuracyPct', 'streak', 'gameMode', 'updatedAt']);
+
+      allow delete: if isValidId(scoreId) &&
+                       isSignedIn() &&
+                       (isOwner(existing().userId) || isBootstrappedTutor());
+    }
+  }
+}
