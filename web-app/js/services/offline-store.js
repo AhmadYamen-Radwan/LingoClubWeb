@@ -226,7 +226,7 @@ export class OfflineStore {
       title: String(title || 'Custom Quiz').trim().slice(0, 80),
       topic: String(topic || 'English').trim().slice(0, 40),
       cefrLevel,
-      questions: questions.slice(0, 20),
+      questions: (questions || []).slice(0, 60),
       createdAtMs: Date.now()
     };
     const next = [item, ...list];

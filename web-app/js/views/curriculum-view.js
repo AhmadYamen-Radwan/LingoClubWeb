@@ -44,7 +44,7 @@ function startWeeklySpeedMatch(week, sessionWords) {
     mode: 'MATCH',
     weekNumber: week.weekNumber,
     pairs: pairWords,
-    leftItems: shuffleArray(pairWords.map((w) => ({ id: w.id, text: w.english }))),
+    leftItems: shuffleArray(pairWords.map((w) => ({ id: w.id, text: w.word || w.english || '' }))),
     rightItems: shuffleArray(pairWords.map((w) => ({ id: w.id, text: w.arabic }))),
     selectedLeft: null,
     matchedIds: new Set(),
@@ -68,11 +68,12 @@ function renderWeeklyMiniGame(week) {
       );
     }
     const q = g.questions[g.idx];
+    const wordStr = q.word.word || q.word.english || '';
     return el(
       'div',
       { className: 'card stack-md' },
       el('div', { className: 'row-between' }, el('strong', {}, `Word ${g.idx + 1}/${g.questions.length}`), el('button', { type: 'button', className: 'btn btn-ghost', onClick: () => { weeklyGameState = null; store.emit('change'); } }, '✕ Exit')),
-      el('div', { className: 'row-between' }, el('h3', { className: 'display-title' }, q.word.english), el('button', { type: 'button', className: 'btn-icon', onClick: () => ttsSpeaker.speak(q.word.english) }, '🔊')),
+      el('div', { className: 'row-between' }, el('h3', { className: 'display-title' }, wordStr), el('button', { type: 'button', className: 'btn-icon', onClick: () => ttsSpeaker.speak(wordStr) }, '🔊')),
       el(
         'div',
         { className: 'grid-2' },
@@ -205,10 +206,12 @@ export function renderCurriculumView({ navigate }) {
     .filter((w) => {
       const q = searchQuery.trim().toLowerCase();
       if (!q) return true;
-      return w.english.toLowerCase().includes(q) || w.arabic.includes(q);
+      const eng = String(w.word || w.english || '').toLowerCase();
+      return eng.includes(q) || String(w.arabic || '').includes(q);
     });
 
   const teacherPacks = (store.clubContent || []).filter((c) => c.contentType === 'WEEKLY_PACK' && Number(c.weekNumber) === week.weekNumber);
+  const weekCefr = week.cefrLevel || (week.weekNumber === 1 ? 'A1–B1' : 'B1–B2');
 
   return el(
     'div',
@@ -236,7 +239,7 @@ export function renderCurriculumView({ navigate }) {
               store.emit('change');
             }
           },
-          `Week ${w.weekNumber}: ${w.title} (${w.cefrLevel})`
+          w.title || `Week ${w.weekNumber}`
         )
       )
     ),
@@ -245,10 +248,10 @@ export function renderCurriculumView({ navigate }) {
     el(
       'div',
       { className: 'card card-soft-primary stack-sm' },
-      el('div', { className: 'row-between' }, el('strong', {}, `Week ${week.weekNumber} Mastery`), createCefrBadge(week.cefrLevel)),
-      el('p', { className: 'small', style: { margin: 0 } }, week.theme),
+      el('div', { className: 'row-between' }, el('strong', {}, `Week ${week.weekNumber} Mastery`), createCefrBadge(week.weekNumber === 1 ? 'B1' : 'B2')),
+      el('p', { className: 'small', style: { margin: 0 } }, week.themeStory || week.theme || week.subtitle || ''),
       el('div', { className: 'progress-track' }, el('div', { className: 'progress-fill mint', style: { width: `${Math.min(100, Math.round((masteredSet.size / Math.max(1, week.words.length)) * 100))}%` } })),
-      el('div', { className: 'row-between xs' }, el('span', {}, `${masteredSet.size} / ${week.words.length} words mastered`), el('span', {}, `${completedSessions.size}/3 sessions · ${progress.gamesPlayed || 0} games`))
+      el('div', { className: 'row-between xs' }, el('span', {}, `${masteredSet.size} / ${week.words.length} words mastered (${weekCefr})`), el('span', {}, `${completedSessions.size}/3 sessions · ${progress.gamesPlayed || 0} games`))
     ),
 
     // Session 1/2/3 Tabs + Complete Button
@@ -317,9 +320,10 @@ export function renderCurriculumView({ navigate }) {
             store.toast('Creating AI quiz from Session words...');
             const draft = await aiService.generateQuizDraft({
               topic: session.title,
-              cefrLevel: week.cefrLevel,
-              questionCount: 5,
-              focusWords: sessionWords.slice(0, 12).map((w) => w.english)
+              cefrLevel: week.weekNumber === 1 ? 'B1' : 'B2',
+              questionCount: 10,
+              quizMode: 'VOCAB',
+              focusWords: sessionWords.slice(0, 16).map((w) => w.word || w.english).filter(Boolean)
             });
             await store.saveCustomQuiz(draft);
             navigate('quiz');
@@ -367,6 +371,8 @@ export function renderCurriculumView({ navigate }) {
             { className: 'grid-2' },
             ...filteredWords.map((w) => {
               const isMastered = masteredSet.has(w.id);
+              const engWord = w.word || w.english || '';
+              const sentence = w.storyLine || w.exampleSentence || w.meaning || '';
               return el(
                 'div',
                 { className: `card stack-xs ${isMastered ? 'card-soft-mint' : ''}` },
@@ -376,37 +382,44 @@ export function renderCurriculumView({ navigate }) {
                   el(
                     'div',
                     { className: 'stack-xs' },
-                    el('div', { className: 'card-title' }, w.english),
-                    el('div', { className: 'xs mono muted' }, w.phonetic || '')
+                    el('div', { className: 'card-title' }, engWord),
+                    el('div', { className: 'xs mono muted' }, w.meaning || w.phonetic || '')
                   ),
                   el(
                     'div',
                     { className: 'row', style: { gap: '4px' } },
-                    el('button', { type: 'button', className: 'btn-icon', ariaLabel: `Pronounce ${w.english}`, onClick: () => ttsSpeaker.speak(w.english) }, '🔊'),
+                    el('button', { type: 'button', className: 'btn-icon', ariaLabel: `Pronounce ${engWord}`, onClick: () => ttsSpeaker.speak(engWord) }, '🔊'),
                     el('button', { type: 'button', className: 'btn-icon', ariaLabel: 'Toggle mastered', onClick: () => store.toggleWeeklyWordMastered(week.weekNumber, w.id) }, isMastered ? '✅' : '⬜')
                   )
                 ),
                 el('div', { className: 'arabic-text', style: { fontWeight: '700', fontSize: '1.05rem' } }, w.arabic),
-                el('div', { className: 'small muted' }, renderTranslatableText(w.exampleSentence, { cefrLevel: week.cefrLevel }))
+                el('div', { className: 'small muted' }, renderTranslatableText(sentence, { cefrLevel: w.cefrLevel || 'B1' }))
               );
             })
           )
         )
       : viewMode === 'STORY'
-        ? el(
-            'div',
-            { className: 'card stack-md' },
-            el(
+        ? (() => {
+            const storyParas = session.storyParagraphs || [
+              session.storyOpening,
+              ...sessionWords.slice(0, 12).map((w) => w.storyLine).filter(Boolean),
+              session.storyClosing
+            ].filter(Boolean);
+            return el(
               'div',
-              { className: 'row-between' },
-              el('h2', { className: 'section-title' }, `📖 ${session.storyTitle}`),
-              el('button', { type: 'button', className: 'btn btn-soft', onClick: () => ttsSpeaker.speak((session.storyParagraphs || []).join(' ')) }, '🔊 Read Aloud')
-            ),
-            el('p', { className: 'small muted', style: { margin: 0 } }, session.storyPrompt),
-            ...(session.storyParagraphs || []).map((para) =>
-              el('p', { style: { margin: 0, lineHeight: 1.75 } }, renderTranslatableText(para, { cefrLevel: week.cefrLevel }))
-            )
-          )
+              { className: 'card stack-md' },
+              el(
+                'div',
+                { className: 'row-between' },
+                el('h2', { className: 'section-title' }, `📖 ${session.storyTitle || session.title}`),
+                el('button', { type: 'button', className: 'btn btn-soft', onClick: () => ttsSpeaker.speak(storyParas.join(' ')) }, '🔊 Read Aloud')
+              ),
+              el('p', { className: 'small muted', style: { margin: 0 } }, session.storyPrompt || session.teachingTip || ''),
+              ...storyParas.map((para) =>
+                el('p', { style: { margin: 0, lineHeight: 1.75 } }, renderTranslatableText(para, { cefrLevel: week.weekNumber === 1 ? 'B1' : 'B2' }))
+              )
+            );
+          })()
         : weeklyGameState
           ? renderWeeklyMiniGame(week)
           : el(

@@ -1,20 +1,95 @@
-// Gemini REST AI Generator + Deterministic Offline Curriculum Fallbacks
-// Replicates LingoAiGenerator.kt with zero backend requirement when offline or no API key is configured.
+// Gemini REST AI Generator + Deterministic Offline Curriculum & General Facts Engine
+// Replicates LingoAiGenerator.kt and extends it with up to 60 questions + general knowledge topics.
 
 import { OfflineRoleplayGenerator, QUIZ_PACKS } from '../data/curated-content.js';
 import { WEEKLY_CURRICULUM } from '../data/weekly-curriculum.js';
-import { CURATED_DICTIONARY } from '../data/dictionary.js';
+import { CURATED_DICTIONARY, getLoadedDictionarySync } from '../data/dictionary.js';
 import { CefrLevel, shuffleArray } from '../models.js';
 import { getSavedGeminiKey } from './offline-store.js';
 
 const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 
-async function callGeminiJson(prompt) {
+const GENERAL_FACTS_BANK = [
+  // Science & Space
+  { topic: 'science space', prompt: 'Which planet in our solar system has the most prominent ring system?', options: ['Saturn', 'Mars', 'Venus', 'Mercury'], correctIndex: 0, tip: 'Saturn’s iconic rings are made mostly of ice particles and rocky debris.' },
+  { topic: 'science', prompt: 'What gas do plants primarily absorb from the atmosphere for photosynthesis?', options: ['Carbon dioxide', 'Nitrogen', 'Helium', 'Hydrogen'], correctIndex: 0, tip: 'Plants take in carbon dioxide (CO₂) and release oxygen.' },
+  { topic: 'science', prompt: 'How long does light from the Sun take to reach Earth?', options: ['About 8 minutes', 'About 8 seconds', 'About 2 hours', 'About 1 day'], correctIndex: 0, tip: 'Sunlight takes roughly 8 minutes and 20 seconds to travel 150 million km.' },
+  { topic: 'science', prompt: 'What is the chemical symbol for gold on the periodic table?', options: ['Au', 'Ag', 'Gd', 'Go'], correctIndex: 0, tip: 'Au comes from the Latin word for gold, "aurum".' },
+  { topic: 'science', prompt: 'Which human organ is responsible for pumping blood throughout the body?', options: ['Heart', 'Liver', 'Kidney', 'Spleen'], correctIndex: 0, tip: 'The heart beats roughly 100,000 times every day.' },
+  { topic: 'science space', prompt: 'Which is the largest planet in our solar system?', options: ['Jupiter', 'Uranus', 'Neptune', 'Earth'], correctIndex: 0, tip: 'Jupiter is a gas giant more than 11 times wider than Earth.' },
+  { topic: 'science', prompt: 'At what temperature Celsius does pure water freeze at standard pressure?', options: ['0°C', '10°C', '-10°C', '100°C'], correctIndex: 0, tip: 'Water freezes at 0°C (32°F) and boils at 100°C.' },
+  { topic: 'science', prompt: 'Which metal is liquid at normal room temperature?', options: ['Mercury', 'Iron', 'Aluminum', 'Copper'], correctIndex: 0, tip: 'Mercury stays liquid at room temperature and was historically used in thermometers.' },
+  { topic: 'science space', prompt: 'What is the name of the galaxy that contains our solar system?', options: ['Milky Way', 'Andromeda', 'Triangulum', 'Whirlpool'], correctIndex: 0, tip: 'The Milky Way is a barred spiral galaxy holding billions of stars.' },
+  { topic: 'science', prompt: 'Which vitamin is mainly produced in human skin when exposed to sunlight?', options: ['Vitamin D', 'Vitamin C', 'Vitamin B12', 'Vitamin K'], correctIndex: 0, tip: 'Sunlight triggers Vitamin D synthesis, supporting strong bones.' },
+
+  // World History & Geography
+  { topic: 'history geography', prompt: 'Which river is widely recognized as the longest river in Africa?', options: ['The Nile', 'The Congo', 'The Zambezi', 'The Niger'], correctIndex: 0, tip: 'The Nile flows northward for about 6,650 km into the Mediterranean Sea.' },
+  { topic: 'geography', prompt: 'What is the capital city of Japan?', options: ['Tokyo', 'Kyoto', 'Osaka', 'Sapporo'], correctIndex: 0, tip: 'Tokyo has been Japan’s capital since 1868.' },
+  { topic: 'history', prompt: 'In which ancient civilization were the Great Pyramids of Giza built?', options: ['Ancient Egypt', 'Ancient Greece', 'Mesopotamia', 'Roman Empire'], correctIndex: 0, tip: 'The Great Pyramid was built around 2560 BCE during Egypt’s Fourth Dynasty.' },
+  { topic: 'geography', prompt: 'Which is the largest ocean on Earth?', options: ['Pacific Ocean', 'Atlantic Ocean', 'Indian Ocean', 'Arctic Ocean'], correctIndex: 0, tip: 'The Pacific Ocean covers more than 30% of Earth’s surface.' },
+  { topic: 'geography', prompt: 'On which continent is the Sahara Desert located?', options: ['Africa', 'Asia', 'Australia', 'South America'], correctIndex: 0, tip: 'The Sahara stretches across 11 countries in North Africa.' },
+  { topic: 'history', prompt: 'Who was the first human to walk on the Moon in 1969?', options: ['Neil Armstrong', 'Buzz Aldrin', 'Yuri Gagarin', 'Michael Collins'], correctIndex: 0, tip: 'Neil Armstrong stepped onto the lunar surface during Apollo 11.' },
+  { topic: 'geography', prompt: 'Which mountain is the tallest above sea level on Earth?', options: ['Mount Everest', 'K2', 'Kilimanjaro', 'Mont Blanc'], correctIndex: 0, tip: 'Mount Everest rises 8,848.86 meters in the Himalayas.' },
+  { topic: 'history', prompt: 'Who painted the Mona Lisa?', options: ['Leonardo da Vinci', 'Michelangelo', 'Raphael', 'Pablo Picasso'], correctIndex: 0, tip: 'Leonardo da Vinci painted the Mona Lisa in the early 1500s.' },
+  { topic: 'geography', prompt: 'Which country is home to both Istanbul and Ankara?', options: ['Turkey', 'Greece', 'Jordan', 'Spain'], correctIndex: 0, tip: 'Ankara is Turkey’s capital, while Istanbul bridges Europe and Asia.' },
+  { topic: 'geography', prompt: 'Which continent has no permanent human population and is mostly covered in ice?', options: ['Antarctica', 'Europe', 'Oceania', 'South America'], correctIndex: 0, tip: 'Only rotating teams of scientists live temporarily at Antarctic research stations.' },
+
+  // Technology & AI
+  { topic: 'technology ai', prompt: 'What does "CPU" stand for in computing?', options: ['Central Processing Unit', 'Computer Power Utility', 'Core Program Upload', 'Central Pixel User'], correctIndex: 0, tip: 'The CPU executes instructions and coordinates computer operations.' },
+  { topic: 'technology ai', prompt: 'What does "HTTP" stand for at the start of web addresses?', options: ['HyperText Transfer Protocol', 'High Tech Text Page', 'Host Transfer Tool Path', 'Hyper Terminal Text Port'], correctIndex: 0, tip: 'HTTP is the foundational protocol for loading web pages.' },
+  { topic: 'technology ai', prompt: 'How many bits make up one byte?', options: ['8 bits', '4 bits', '16 bits', '32 bits'], correctIndex: 0, tip: 'One byte equals 8 binary digits (bits).' },
+  { topic: 'technology ai', prompt: 'Who is widely credited as writing the first algorithm for a computing machine?', options: ['Ada Lovelace', 'Alan Turing', 'Grace Hopper', 'Tim Berners-Lee'], correctIndex: 0, tip: 'Ada Lovelace wrote notes and an algorithm for Babbage’s Analytical Engine in 1843.' },
+  { topic: 'technology ai', prompt: 'Which language runs natively inside every modern web browser alongside HTML and CSS?', options: ['JavaScript', 'Python', 'C++', 'Swift'], correctIndex: 0, tip: 'JavaScript powers interactivity across Chrome, Safari, Firefox, and Edge.' },
+
+  // Animals & Nature
+  { topic: 'animals nature', prompt: 'Which mammal is capable of true sustained flight?', options: ['Bat', 'Flying squirrel', 'Ostrich', 'Penguin'], correctIndex: 0, tip: 'Bats are the only mammals that fly with powered wings.' },
+  { topic: 'animals nature', prompt: 'How many hearts does an octopus have?', options: ['Three', 'One', 'Two', 'Four'], correctIndex: 0, tip: 'An octopus has two hearts for its gills and one for the rest of its body.' },
+  { topic: 'animals nature', prompt: 'Which is the fastest land animal over short distances?', options: ['Cheetah', 'Lion', 'Gazelle', 'Greyhound'], correctIndex: 0, tip: 'Cheetahs can sprint up to around 100–110 km/h in short bursts.' },
+  { topic: 'animals nature', prompt: 'Which bird is famous for being unable to fly yet is the fastest running bird?', options: ['Ostrich', 'Eagle', 'Flamingo', 'Albatross'], correctIndex: 0, tip: 'Ostriches can run up to 70 km/h on land.' },
+  { topic: 'animals nature', prompt: 'What is the largest living animal on Earth today?', options: ['Blue whale', 'African elephant', 'Giraffe', 'Whale shark'], correctIndex: 0, tip: 'Blue whales can grow nearly 30 meters long.' },
+
+  // General Facts & Culture
+  { topic: 'general facts culture sports', prompt: 'How many minutes are in a standard professional football (soccer) match excluding stoppage time?', options: ['90 minutes', '60 minutes', '80 minutes', '100 minutes'], correctIndex: 0, tip: 'A football match consists of two 45-minute halves.' },
+  { topic: 'general facts culture', prompt: 'How many colors are traditionally listed in a rainbow?', options: ['7', '5', '9', '12'], correctIndex: 0, tip: 'Red, orange, yellow, green, blue, indigo, and violet.' },
+  { topic: 'general facts culture', prompt: 'Which musical instrument has 88 black and white keys on a standard modern model?', options: ['Piano', 'Violin', 'Flute', 'Trumpet'], correctIndex: 0, tip: 'A standard piano has 52 white keys and 36 black keys.' },
+  { topic: 'general facts culture', prompt: 'In which city are the Olympic Games said to have originated in ancient times?', options: ['Olympia, Greece', 'Rome, Italy', 'Cairo, Egypt', 'London, UK'], correctIndex: 0, tip: 'The ancient Olympic Games began in Olympia around 776 BCE.' },
+  { topic: 'general facts culture', prompt: 'Which language has the most total native + non-native speakers worldwide?', options: ['English', 'French', 'Portuguese', 'German'], correctIndex: 0, tip: 'Over 1.4 billion people speak English globally as a first or second language.' }
+];
+
+function wordEnglish(w) {
+  return String(w?.word || w?.english || '').trim();
+}
+
+function wordArabic(w) {
+  return String(w?.arabic || w?.translation || '').trim();
+}
+
+function wordExample(w) {
+  return String(w?.storyLine || w?.exampleSentence || w?.example || w?.meaning || '').trim();
+}
+
+function normalizeQuizQuestion(q, cefrLevel) {
+  const opts = (Array.isArray(q?.options) ? q.options : [])
+    .map((s) => String(s ?? '').trim())
+    .filter(Boolean)
+    .slice(0, 4);
+  while (opts.length < 4) opts.push('None of the above');
+  const prompt = String(q?.prompt || '').trim();
+  return {
+    prompt,
+    options: opts,
+    correctIndex: Math.min(Math.max(Number(q?.correctIndex) || 0, 0), 3),
+    timeLimitSec: cefrLevel === 'A1' || cefrLevel === 'A2' ? 20 : 18,
+    tip: String(q?.tip || '').trim()
+  };
+}
+
+async function callGeminiJson(prompt, maxOutputTokens = 4096) {
   const apiKey = getSavedGeminiKey();
   if (!apiKey) return null;
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30000);
+  const timeout = setTimeout(() => controller.abort(), 45000);
   try {
     const res = await fetch(`${GEMINI_ENDPOINT}?key=${encodeURIComponent(apiKey)}`, {
       method: 'POST',
@@ -25,7 +100,7 @@ async function callGeminiJson(prompt) {
         generationConfig: {
           responseMimeType: 'application/json',
           temperature: 0.7,
-          maxOutputTokens: 2048
+          maxOutputTokens
         }
       })
     });
@@ -42,68 +117,187 @@ async function callGeminiJson(prompt) {
   }
 }
 
-function buildOfflineQuizDraft({ topic, cefrLevel, questionCount, focusWords }) {
-  const cleanTopic = String(topic || 'Everyday English').trim() || 'Everyday English';
-  const count = Math.min(Math.max(Number(questionCount) || 5, 3), 10);
+function isGeneralTopic(topic, quizMode) {
+  if (quizMode === 'GENERAL') return true;
+  if (quizMode === 'VOCAB') return false;
+  const t = String(topic || '').toLowerCase();
+  return /(general|fact|trivia|science|space|planet|history|geography|tech|computer|ai|animal|nature|sport|culture|movie|music|world|math|food)/.test(t);
+}
 
-  // Build rich word pool prioritizing focusWords + matching CEFR dictionary + weekly words
-  const weeklyPool = WEEKLY_CURRICULUM.flatMap((w) => w.words || []);
-  const dictPool = CURATED_DICTIONARY;
-  const focusSet = new Set((focusWords || []).map((w) => String(w).toLowerCase().trim()));
+function buildOfflineQuizDraft({ topic, cefrLevel, questionCount, focusWords = [], quizMode = 'AUTO' }) {
+  const cleanTopic = String(topic || 'General Knowledge & English').trim() || 'General Knowledge & English';
+  const topicLow = cleanTopic.toLowerCase();
+  const count = Math.min(Math.max(Number(questionCount) || 10, 3), 60);
+  const preferGeneral = isGeneralTopic(cleanTopic, quizMode);
 
-  const matchedWeekly = weeklyPool.filter(
-    (w) => focusSet.has(w.english.toLowerCase()) || w.english.toLowerCase().includes(cleanTopic.toLowerCase())
+  // Build normalized bilingual word pool (400 weekly words + curated + loaded dictionary)
+  const weeklyNormalized = WEEKLY_CURRICULUM.flatMap((w) => w.words || [])
+    .map((w) => ({
+      english: wordEnglish(w),
+      arabic: wordArabic(w),
+      example: wordExample(w),
+      meaning: String(w?.meaning || '').trim(),
+      cefrLevel: String(w?.cefrLevel || 'B1')
+    }))
+    .filter((w) => w.english && w.arabic);
+
+  const loadedDict = getLoadedDictionarySync();
+  const dictSource = loadedDict?.length ? loadedDict : CURATED_DICTIONARY;
+  const dictNormalized = (dictSource || [])
+    .map((d) => ({
+      english: wordEnglish(d),
+      arabic: wordArabic(d),
+      example: wordExample(d),
+      meaning: String(d?.meaning || d?.category || '').trim(),
+      cefrLevel: String(d?.cefrLevel || 'B1')
+    }))
+    .filter((d) => d.english && d.arabic);
+
+  const focusSet = new Set(
+    (Array.isArray(focusWords) ? focusWords : [])
+      .map((w) => String(w || '').toLowerCase().trim())
+      .filter(Boolean)
   );
-  const pool = [...matchedWeekly, ...shuffleArray(weeklyPool.filter((w) => w.cefrLevel === cefrLevel || cefrLevel === CefrLevel.B2))];
-  const uniqueWords = [];
-  const seen = new Set();
-  for (const w of pool) {
-    if (!seen.has(w.english)) {
-      seen.add(w.english);
-      uniqueWords.push(w);
-    }
-    if (uniqueWords.length >= count * 4) break;
-  }
 
   const questions = [];
-  for (let i = 0; i < count; i++) {
-    const target = uniqueWords[i];
-    if (target) {
-      const distractors = shuffleArray(
-        uniqueWords.filter((d) => d.english !== target.english)
-      ).slice(0, 3);
-      while (distractors.length < 3 && dictPool.length > distractors.length) {
-        const d = dictPool[Math.floor(Math.random() * dictPool.length)];
-        if (d.english !== target.english && !distractors.some((x) => x.english === d.english)) {
-          distractors.push({ english: d.english, arabic: d.arabic });
-        }
+  const usedPrompts = new Set();
+  const pushUnique = (q) => {
+    const normalized = normalizeQuizQuestion(q, cefrLevel);
+    if (!normalized.prompt || usedPrompts.has(normalized.prompt.toLowerCase())) return false;
+    usedPrompts.add(normalized.prompt.toLowerCase());
+    questions.push(normalized);
+    return true;
+  };
+
+  // 1. General Knowledge & Curated Trivia Packs (prioritized when topic is general facts / trivia)
+  const topicTokens = topicLow.split(/[^a-z0-9]+/).filter((t) => t.length >= 3);
+  const matchedFacts = GENERAL_FACTS_BANK.filter((f) =>
+    topicTokens.some((tok) => f.topic.includes(tok) || f.prompt.toLowerCase().includes(tok))
+  );
+  const otherFacts = GENERAL_FACTS_BANK.filter((f) => !matchedFacts.includes(f));
+  const curatedPackQs = QUIZ_PACKS.flatMap((pack) =>
+    (pack.questions || []).map((q) => ({
+      ...q,
+      _packMatch: topicTokens.some(
+        (tok) =>
+          String(pack.title || '').toLowerCase().includes(tok) ||
+          String(pack.topic || '').toLowerCase().includes(tok) ||
+          String(q.prompt || '').toLowerCase().includes(tok)
+      )
+    }))
+  );
+  const matchedPackQs = curatedPackQs.filter((q) => q._packMatch);
+  const otherPackQs = curatedPackQs.filter((q) => !q._packMatch);
+
+  if (preferGeneral) {
+    for (const q of [...shuffleArray(matchedFacts), ...shuffleArray(matchedPackQs), ...shuffleArray(otherFacts), ...shuffleArray(otherPackQs)]) {
+      if (questions.length >= count) break;
+      pushUnique(q);
+    }
+  } else if (matchedPackQs.length || matchedFacts.length) {
+    for (const q of [...shuffleArray(matchedPackQs), ...shuffleArray(matchedFacts)]) {
+      if (questions.length >= count) break;
+      pushUnique(q);
+    }
+  }
+
+  // 2. Bilingual & Definition Vocabulary Pool (fills up to 60 unique questions cleanly)
+  const allWords = [...weeklyNormalized, ...dictNormalized];
+  const matchedWords = allWords.filter((w) => {
+    const engLow = w.english.toLowerCase();
+    const meanLow = w.meaning.toLowerCase();
+    const exLow = w.example.toLowerCase();
+    if (focusSet.has(engLow)) return true;
+    return topicTokens.some((tok) => engLow.includes(tok) || meanLow.includes(tok) || exLow.includes(tok));
+  });
+
+  const levelWords = weeklyNormalized.filter((w) => w.cefrLevel === cefrLevel || cefrLevel === CefrLevel.B2);
+  const candidatePool = [
+    ...matchedWords,
+    ...shuffleArray(levelWords),
+    ...shuffleArray(weeklyNormalized),
+    ...shuffleArray(dictNormalized).slice(0, 300)
+  ];
+
+  const uniqueWords = [];
+  const seenWords = new Set();
+  for (const w of candidatePool) {
+    const key = w.english.toLowerCase();
+    if (!seenWords.has(key)) {
+      seenWords.add(key);
+      uniqueWords.push(w);
+    }
+    if (uniqueWords.length >= count * 2 + 40) break;
+  }
+
+  let cursor = 0;
+  while (questions.length < count && cursor < uniqueWords.length) {
+    const target = uniqueWords[cursor++];
+    const distractors = [];
+    for (let attempt = 0; attempt < 25 && distractors.length < 3; attempt++) {
+      const candidate = uniqueWords[Math.floor(Math.random() * uniqueWords.length)];
+      if (
+        candidate &&
+        candidate.english !== target.english &&
+        candidate.arabic !== target.arabic &&
+        !distractors.some((d) => d.english === candidate.english || d.arabic === candidate.arabic)
+      ) {
+        distractors.push(candidate);
       }
-      const askArabicToEnglish = i % 2 === 1;
-      const correctOption = askArabicToEnglish ? target.english : target.arabic;
-      const wrongOptions = distractors.map((d) => (askArabicToEnglish ? d.english : d.arabic));
-      const allOpts = shuffleArray([correctOption, ...wrongOptions]).slice(0, 4);
-      const correctIndex = Math.max(0, allOpts.indexOf(correctOption));
-      questions.push({
-        prompt: askArabicToEnglish
-          ? `[${cleanTopic}] Which English word means "${target.arabic}"?`
-          : `[${cleanTopic}] What is the Arabic meaning of "${target.english}"?`,
-        options: allOpts,
-        correctIndex,
-        timeLimitSec: cefrLevel === 'A1' || cefrLevel === 'A2' ? 20 : 18,
-        tip: target.exampleSentence || `Remember: ${target.english} = ${target.arabic}`
-      });
+    }
+    if (distractors.length < 3) continue;
+
+    const variant = questions.length % 3;
+    let candidateQ;
+    if (variant === 0) {
+      const opts = shuffleArray([target.arabic, ...distractors.map((d) => d.arabic)]);
+      candidateQ = {
+        prompt: `[${cleanTopic}] What is the Arabic meaning of "${target.english}"?`,
+        options: opts,
+        correctIndex: Math.max(0, opts.indexOf(target.arabic)),
+        tip: target.example || `${target.english} = ${target.arabic}`
+      };
+    } else if (variant === 1) {
+      const opts = shuffleArray([target.english, ...distractors.map((d) => d.english)]);
+      candidateQ = {
+        prompt: `[${cleanTopic}] Which English word matches "${target.arabic}"?`,
+        options: opts,
+        correctIndex: Math.max(0, opts.indexOf(target.english)),
+        tip: target.example || `${target.english} = ${target.arabic}`
+      };
+    } else if (target.meaning && distractors.every((d) => d.meaning)) {
+      const opts = shuffleArray([target.english, ...distractors.map((d) => d.english)]);
+      candidateQ = {
+        prompt: `[${cleanTopic}] Which word means: "${target.meaning}"?`,
+        options: opts,
+        correctIndex: Math.max(0, opts.indexOf(target.english)),
+        tip: `${target.english} (${target.arabic}): ${target.example || target.meaning}`
+      };
     } else {
-      const pack = QUIZ_PACKS[i % QUIZ_PACKS.length];
-      const q = pack.questions[i % pack.questions.length];
-      questions.push({ ...q });
+      const opts = shuffleArray([target.arabic, ...distractors.map((d) => d.arabic)]);
+      candidateQ = {
+        prompt: `[${cleanTopic}] Translate into Arabic: "${target.english}"`,
+        options: opts,
+        correctIndex: Math.max(0, opts.indexOf(target.arabic)),
+        tip: target.example || `${target.english} = ${target.arabic}`
+      };
+    }
+    pushUnique(candidateQ);
+  }
+
+  // Final safety pass with remaining trivia/packs if ever short
+  if (questions.length < count) {
+    for (const q of [...shuffleArray(otherFacts), ...shuffleArray(otherPackQs)]) {
+      if (questions.length >= count) break;
+      pushUnique(q);
     }
   }
 
   return {
-    title: `${cleanTopic} Clash (${cefrLevel})`.slice(0, 80),
+    title: `${cleanTopic} (${cefrLevel})`.slice(0, 80),
     topic: cleanTopic.slice(0, 40),
     cefrLevel,
-    questions,
+    questions: questions.slice(0, count),
     source: 'OFFLINE'
   };
 }
@@ -125,9 +319,10 @@ function evaluateSpeechDeterministically({ targetScript, spokenTranscript, cefrL
   const overlapRatio = targetTokens.length ? matched.length / targetTokens.length : 0;
 
   let phraseHits = 0;
+  const spokenLow = String(spokenTranscript || '').toLowerCase();
   for (const ph of targetPhrases) {
     const cleanPh = String(ph || '').toLowerCase().trim();
-    if (cleanPh && spokenTranscript.toLowerCase().includes(cleanPh)) {
+    if (cleanPh && spokenLow.includes(cleanPh)) {
       phraseHits++;
     }
   }
@@ -163,48 +358,116 @@ function evaluateSpeechDeterministically({ targetScript, spokenTranscript, cefrL
 }
 
 export const aiService = {
-  async generateQuizDraft({ topic, cefrLevel = CefrLevel.B1, questionCount = 5, focusWords = [] }) {
-    const cleanTopic = String(topic || 'Everyday English').trim().slice(0, 60) || 'Everyday English';
-    const count = Math.min(Math.max(Number(questionCount) || 5, 3), 10);
-    const vocabHint = focusWords.length
-      ? ` Incorporate several of these vocabulary words naturally: ${focusWords.slice(0, 12).join(', ')}.`
+  async generateQuizDraft({
+    topic,
+    cefrLevel = CefrLevel.B1,
+    questionCount = 10,
+    focusWords = [],
+    quizMode = 'AUTO',
+    onProgress = null
+  }) {
+    const cleanTopic = String(topic || 'General Knowledge & English').trim().slice(0, 80) || 'General Knowledge & English';
+    const count = Math.min(Math.max(Number(questionCount) || 10, 3), 60);
+    const cleanFocus = (Array.isArray(focusWords) ? focusWords : [])
+      .map((w) => String(w || '').trim())
+      .filter(Boolean);
+    const vocabHint = cleanFocus.length
+      ? ` Incorporate several of these vocabulary words naturally: ${cleanFocus.slice(0, 12).join(', ')}.`
       : '';
-    const prompt =
-      `Create an interactive Kahoot-style English learning quiz for CEFR level ${cefrLevel} on the topic "${cleanTopic}" with exactly ${count} questions.${vocabHint} ` +
-      `Return JSON: {"title":"...","topic":"...","questions":[{"prompt":"...","options":["...","...","...","..."],"correctIndex":0,"tip":"..."}]}. ` +
-      `Each question must have exactly 4 concise options and correctIndex 0..3.`;
+    const styleInstruction =
+      quizMode === 'VOCAB'
+        ? `Focus on English vocabulary, definitions, usage in sentences, and Arabic translations where helpful for CEFR ${cefrLevel}.`
+        : quizMode === 'GENERAL'
+          ? `Create engaging general knowledge, trivia, and real-world fact multiple-choice questions on "${cleanTopic}", written in clear English appropriate for CEFR level ${cefrLevel}.`
+          : `Create accurate, engaging multiple-choice questions directly about "${cleanTopic}" (real facts/trivia if it's a general/science/history/culture topic, or interactive language/grammar/usage questions if it's an English study topic), written in clear English calibrated for CEFR level ${cefrLevel}.`;
 
-    try {
-      const json = await callGeminiJson(prompt);
-      if (json && Array.isArray(json.questions) && json.questions.length > 0) {
-        const parsed = json.questions
-          .map((q) => {
-            const opts = (q.options || []).map((s) => String(s).trim()).filter(Boolean).slice(0, 4);
-            while (opts.length < 4) opts.push('None of the above');
-            return {
-              prompt: String(q.prompt || '').trim(),
-              options: opts,
-              correctIndex: Math.min(Math.max(Number(q.correctIndex) || 0, 0), 3),
-              timeLimitSec: cefrLevel === 'A1' || cefrLevel === 'A2' ? 20 : 18,
-              tip: String(q.tip || '').trim()
-            };
-          })
-          .filter((q) => q.prompt);
-        if (parsed.length > 0) {
+    const apiKey = getSavedGeminiKey();
+    if (apiKey) {
+      try {
+        const collected = [];
+        const seenPrompts = new Set();
+        let quizTitle = `${cleanTopic} (${cefrLevel})`;
+        let resolvedTopic = cleanTopic;
+
+        // Generate in batches of up to 20 so 50-question quizzes never truncate JSON output
+        const maxPerBatch = 20;
+        const totalBatches = Math.ceil(count / maxPerBatch);
+
+        for (let batchIdx = 0; batchIdx < totalBatches && collected.length < count; batchIdx++) {
+          const remaining = count - collected.length;
+          const batchTarget = Math.min(maxPerBatch, remaining);
+          onProgress?.(
+            totalBatches > 1
+              ? `Generating batch ${batchIdx + 1}/${totalBatches} (${collected.length}/${count} ready)...`
+              : `Generating ${count} questions with Gemini...`
+          );
+
+          const avoidList = collected.length
+            ? ` Do NOT repeat these already-used questions: ${collected.slice(-20).map((q) => q.prompt).join(' | ').slice(0, 1200)}.`
+            : '';
+
+          const prompt =
+            `Create an interactive Kahoot-style quiz on the topic "${cleanTopic}" with exactly ${batchTarget} distinct multiple-choice questions.${vocabHint} ` +
+            `${styleInstruction}${avoidList} ` +
+            `Return strict JSON: {"title":"...","topic":"...","questions":[{"prompt":"...","options":["...","...","...","..."],"correctIndex":0,"tip":"..."}]}. ` +
+            `Keep each question clear and concise with 4 distinct options and a short helpful explanation in "tip".`;
+
+          const json = await callGeminiJson(prompt, 8192);
+          if (json && Array.isArray(json.questions)) {
+            if (batchIdx === 0 && json.title) quizTitle = String(json.title).trim();
+            if (batchIdx === 0 && json.topic) resolvedTopic = String(json.topic).trim();
+            for (const rawQ of json.questions) {
+              const q = normalizeQuizQuestion(rawQ, cefrLevel);
+              const key = q.prompt.toLowerCase();
+              if (q.prompt && !seenPrompts.has(key)) {
+                seenPrompts.add(key);
+                collected.push(q);
+                if (collected.length >= count) break;
+              }
+            }
+          }
+        }
+
+        if (collected.length > 0) {
+          // If Gemini returned slightly fewer than requested (e.g. 47/50), top up cleanly without failing
+          if (collected.length < count) {
+            const topUp = buildOfflineQuizDraft({
+              topic: cleanTopic,
+              cefrLevel,
+              questionCount: count,
+              focusWords: cleanFocus,
+              quizMode
+            });
+            for (const q of topUp.questions) {
+              if (collected.length >= count) break;
+              const key = q.prompt.toLowerCase();
+              if (!seenPrompts.has(key)) {
+                seenPrompts.add(key);
+                collected.push(q);
+              }
+            }
+          }
+
           return {
-            title: String(json.title || `${cleanTopic} Clash`).slice(0, 80),
-            topic: String(json.topic || cleanTopic).slice(0, 40),
+            title: quizTitle.slice(0, 80),
+            topic: resolvedTopic.slice(0, 40),
             cefrLevel,
-            questions: parsed,
+            questions: collected.slice(0, count),
             source: 'GEMINI'
           };
         }
+      } catch (err) {
+        console.warn('[aiService] Gemini quiz fallback to offline builder:', err?.message);
       }
-    } catch (err) {
-      console.warn('[aiService] Gemini quiz fallback to offline builder:', err?.message);
     }
 
-    return buildOfflineQuizDraft({ topic: cleanTopic, cefrLevel, questionCount: count, focusWords });
+    return buildOfflineQuizDraft({
+      topic: cleanTopic,
+      cefrLevel,
+      questionCount: count,
+      focusWords: cleanFocus,
+      quizMode
+    });
   },
 
   async generateRoleplay({ setting, cefrLevel = CefrLevel.B1, tone = 'Friendly' }) {
@@ -218,7 +481,7 @@ export const aiService = {
       `"plotTwists":["...","..."]}. Alternate speakerRole A and B.`;
 
     try {
-      const json = await callGeminiJson(prompt);
+      const json = await callGeminiJson(prompt, 4096);
       if (json && Array.isArray(json.lines) && json.lines.length > 0) {
         const lines = json.lines.slice(0, 12).map((l) => ({
           speakerRole: String(l.speakerRole || 'A').toUpperCase() === 'B' ? 'B' : 'A',
@@ -268,7 +531,7 @@ export const aiService = {
       `Return JSON: {"score":0,"summary":"...","clarityFeedback":"...","naturalnessFeedback":"...","suggestedLine":"...","practiceTip":"..."}.`;
 
     try {
-      const json = await callGeminiJson(prompt);
+      const json = await callGeminiJson(prompt, 2048);
       if (json && typeof json.score === 'number') {
         return {
           score: Math.min(Math.max(0, Math.round(json.score)), 100),

@@ -242,7 +242,8 @@ class AppStore extends EventTarget {
         this.emit('change');
       })),
       add(() => firebaseClient.observeCustomQuizzes(uid, (list) => {
-        this.customQuizzes = list;
+        const localLarge = this.offlineStore.loadCustomQuizzes();
+        this.customQuizzes = [...localLarge, ...list].sort((a, b) => (b.createdAtMs || 0) - (a.createdAtMs || 0));
         this.emit('change');
       })),
       add(() => firebaseClient.observeCustomDecks(uid, (list) => {
@@ -759,10 +760,13 @@ class AppStore extends EventTarget {
   // --- Custom Quizzes & Roleplays ---
 
   async saveCustomQuiz(payload) {
-    if (this.isOfflineMode) {
-      this.customQuizzes = this.offlineStore.saveCustomQuiz(payload);
+    const qs = payload?.questions || [];
+    if (this.isOfflineMode || qs.length > 20) {
+      const savedLocal = this.offlineStore.saveCustomQuiz(payload);
+      const cloudOnly = this.isOfflineMode ? [] : (this.customQuizzes || []).filter((q) => !String(q.id || '').startsWith('offline_quiz_'));
+      this.customQuizzes = [...savedLocal, ...cloudOnly].sort((a, b) => (b.createdAtMs || 0) - (a.createdAtMs || 0));
       this.emit('change');
-      this.toast(`Saved quiz "${payload.title}"!`);
+      this.toast(`Saved ${qs.length}-question quiz "${payload.title}"!`);
       return;
     }
     await firebaseClient.saveCustomQuiz(payload);
@@ -770,8 +774,10 @@ class AppStore extends EventTarget {
   }
 
   async deleteCustomQuiz(id) {
-    if (this.isOfflineMode) {
-      this.customQuizzes = this.offlineStore.deleteCustomQuiz(id);
+    if (this.isOfflineMode || String(id || '').startsWith('offline_quiz_')) {
+      const savedLocal = this.offlineStore.deleteCustomQuiz(id);
+      const cloudOnly = this.isOfflineMode ? [] : (this.customQuizzes || []).filter((q) => !String(q.id || '').startsWith('offline_quiz_'));
+      this.customQuizzes = [...savedLocal, ...cloudOnly].sort((a, b) => (b.createdAtMs || 0) - (a.createdAtMs || 0));
       this.emit('change');
       return;
     }

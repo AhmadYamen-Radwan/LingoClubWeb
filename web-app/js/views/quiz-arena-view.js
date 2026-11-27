@@ -38,7 +38,7 @@ function stopRoomTimer() {
 
 function startSoloBlitz({ title, cefrLevel, questions }) {
   stopSoloTimer();
-  const prepared = prepareDynamicQuizQuestions(questions).slice(0, 20);
+  const prepared = prepareDynamicQuizQuestions(questions).slice(0, 60);
   if (!prepared.length) {
     store.toast('This quiz has no questions yet.', 'error');
     return;
@@ -79,10 +79,96 @@ function startSoloBlitz({ title, cefrLevel, questions }) {
   store.emit('change');
 }
 
+const AI_TOPIC_PRESETS = [
+  'General Knowledge & Facts',
+  'Science & Space',
+  'World History & Geography',
+  'Technology & AI',
+  'Animals & Nature',
+  'Sports & Pop Culture',
+  'Everyday Conversations',
+  'Travel & Airports',
+  'Business & Job Interviews',
+  'English Grammar & Idioms',
+  'Arabic–English Vocabulary'
+];
+
 function openAiQuizGeneratorModal() {
-  const topicInput = el('input', { type: 'text', className: 'field', placeholder: 'e.g., Job Interview, Coffee Shop, Travel', value: 'Everyday Conversations' });
-  const levelSelect = el('select', { className: 'field' }, ...CEFR_LEVELS.map((l) => el('option', { value: l, selected: l === (store.profile?.learningLevel || 'B1') }, l)));
-  const countSelect = el('select', { className: 'field' }, ...[4, 5, 6, 8].map((n) => el('option', { value: String(n), selected: n === 5 }, `${n} Questions`)));
+  const topicInput = el('input', {
+    type: 'text',
+    className: 'field',
+    placeholder: 'Type ANY topic (e.g. General Facts, Football, Space, Cooking...)',
+    value: 'General Knowledge & Facts'
+  });
+  const levelSelect = el(
+    'select',
+    { className: 'field' },
+    ...CEFR_LEVELS.map((l) => el('option', { value: l, selected: l === (store.profile?.learningLevel || 'B1') }, l))
+  );
+  const modeSelect = el(
+    'select',
+    { className: 'field' },
+    el('option', { value: 'AUTO', selected: true }, 'Auto (Match Topic)'),
+    el('option', { value: 'GENERAL' }, 'General Facts & Trivia'),
+    el('option', { value: 'VOCAB' }, 'English & Arabic Vocab')
+  );
+  const countInput = el('input', {
+    type: 'number',
+    className: 'field',
+    min: '3',
+    max: '60',
+    value: '10',
+    placeholder: '3 – 60'
+  });
+  const countPresets = [5, 10, 20, 30, 50];
+  let countChips = [];
+  const syncCountChips = () => {
+    const val = Number(countInput.value);
+    countChips.forEach((btn) => {
+      btn.classList.toggle('selected', Number(btn.dataset.count) === val);
+    });
+  };
+  countChips = countPresets.map((n) =>
+    el(
+      'button',
+      {
+        type: 'button',
+        className: `chip ${n === 10 ? 'selected' : ''}`,
+        dataset: { count: String(n) },
+        onClick: () => {
+          countInput.value = String(n);
+          syncCountChips();
+        }
+      },
+      `${n} Qs`
+    )
+  );
+  countInput.addEventListener('input', syncCountChips);
+
+  let topicChips = [];
+  const syncTopicChips = () => {
+    const val = topicInput.value.trim().toLowerCase();
+    topicChips.forEach((btn) => {
+      btn.classList.toggle('selected', btn.dataset.topic.toLowerCase() === val);
+    });
+  };
+  topicChips = AI_TOPIC_PRESETS.map((preset) =>
+    el(
+      'button',
+      {
+        type: 'button',
+        className: `chip ${preset === 'General Knowledge & Facts' ? 'selected' : ''}`,
+        dataset: { topic: preset },
+        onClick: () => {
+          topicInput.value = preset;
+          syncTopicChips();
+        }
+      },
+      preset
+    )
+  );
+  topicInput.addEventListener('input', syncTopicChips);
+
   const statusEl = el('p', { className: 'small muted hidden', style: { margin: 0 } });
 
   const genBtn = el(
@@ -91,21 +177,27 @@ function openAiQuizGeneratorModal() {
       type: 'button',
       className: 'btn btn-primary btn-full',
       onClick: async () => {
+        const requestedCount = Math.min(Math.max(Number(countInput.value) || 10, 3), 60);
+        countInput.value = String(requestedCount);
         genBtn.disabled = true;
-        genBtn.textContent = '✨ Generating Quiz...';
-        statusEl.textContent = 'Creating interactive bilingual questions...';
+        genBtn.textContent = `✨ Generating ${requestedCount} Questions...`;
+        statusEl.textContent = `Creating ${requestedCount} interactive questions...`;
         statusEl.classList.remove('hidden');
         try {
           const draft = await aiService.generateQuizDraft({
-            topic: topicInput.value,
+            topic: topicInput.value.trim() || 'General Knowledge & Facts',
             cefrLevel: levelSelect.value,
-            questionCount: Number(countSelect.value)
+            questionCount: requestedCount,
+            quizMode: modeSelect.value,
+            onProgress: (msg) => {
+              statusEl.textContent = msg;
+            }
           });
           await store.saveCustomQuiz(draft);
           closeModal();
           startSoloBlitz(draft);
         } catch (err) {
-          statusEl.textContent = err.message;
+          statusEl.textContent = err?.message || 'Could not generate quiz.';
         } finally {
           genBtn.disabled = false;
           genBtn.textContent = '✨ Generate & Play Now';
@@ -117,16 +209,29 @@ function openAiQuizGeneratorModal() {
 
   openModal({
     title: '✨ AI Quiz Generator',
-    subtitle: 'Uses Gemini if API key is set, or built-in bilingual curriculum engine',
+    subtitle: 'Pick any topic (general facts, science, history, English) and generate 3 to 60 questions',
     content: el(
       'div',
       { className: 'stack-md' },
-      el('div', { className: 'stack-xs' }, el('label', { className: 'field-label' }, 'Topic'), topicInput),
+      el(
+        'div',
+        { className: 'stack-xs' },
+        el('label', { className: 'field-label' }, 'Choose a Topic Preset or Type Anything'),
+        el('div', { className: 'row-wrap' }, ...topicChips),
+        topicInput
+      ),
+      el(
+        'div',
+        { className: 'stack-xs' },
+        el('label', { className: 'field-label' }, 'Number of Questions (up to 60)'),
+        el('div', { className: 'row-wrap' }, ...countChips),
+        countInput
+      ),
       el(
         'div',
         { className: 'grid-2' },
         el('div', { className: 'stack-xs' }, el('label', { className: 'field-label' }, 'CEFR Level'), levelSelect),
-        el('div', { className: 'stack-xs' }, el('label', { className: 'field-label' }, 'Questions'), countSelect)
+        el('div', { className: 'stack-xs' }, el('label', { className: 'field-label' }, 'Quiz Style'), modeSelect)
       ),
       statusEl,
       genBtn
@@ -135,8 +240,8 @@ function openAiQuizGeneratorModal() {
 }
 
 function openCreateCustomQuizModal() {
-  const titleInput = el('input', { type: 'text', className: 'field', placeholder: 'e.g., Phrasal Verbs Challenge' });
-  const topicInput = el('input', { type: 'text', className: 'field', placeholder: 'Topic (e.g., Verbs)' });
+  const titleInput = el('input', { type: 'text', className: 'field', placeholder: 'e.g., World Trivia or Phrasal Verbs' });
+  const topicInput = el('input', { type: 'text', className: 'field', placeholder: 'Topic (e.g., Science, Verbs)' });
   const levelSelect = el('select', { className: 'field' }, ...CEFR_LEVELS.map((l) => el('option', { value: l, selected: l === 'B1' }, l)));
 
   const questions = [
@@ -203,7 +308,7 @@ function openCreateCustomQuizModal() {
 
   openModal({
     title: '📝 Create Custom Quiz',
-    subtitle: 'Build up to 20 multiple-choice questions for Solo Blitz or Live Host',
+    subtitle: 'Build up to 60 multiple-choice questions for Solo Blitz or Live Host',
     content: el(
       'div',
       { className: 'stack-md' },
@@ -219,7 +324,7 @@ function openCreateCustomQuizModal() {
             type: 'button',
             className: 'btn btn-outline',
             onClick: () => {
-              if (questions.length >= 20) return store.toast('Maximum 20 questions per quiz.');
+              if (questions.length >= 60) return store.toast('Maximum 60 questions per quiz.');
               questions.push({ prompt: '', options: ['', '', '', ''], correctIndex: 0, tip: '' });
               renderQuestionsEditor();
             }

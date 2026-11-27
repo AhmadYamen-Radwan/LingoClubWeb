@@ -28,7 +28,15 @@ function stopArcadeTimer() {
 }
 
 function getAllWordsPool() {
-  return WEEKLY_CURRICULUM.flatMap((w) => w.words || []);
+  return WEEKLY_CURRICULUM.flatMap((wk) =>
+    (wk.words || []).map((w) => ({
+      ...w,
+      english: String(w.word || w.english || '').trim(),
+      exampleSentence: String(w.storyLine || w.exampleSentence || w.meaning || '').trim(),
+      arabic: String(w.arabic || '').trim(),
+      cefrLevel: w.cefrLevel || 'B1'
+    }))
+  ).filter((w) => w.english && w.arabic);
 }
 
 function exitToHub() {
