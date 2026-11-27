@@ -10,15 +10,20 @@ let showHostHint = true;
 let roundState = null;
 let roundTimer = null;
 
-function stopRoundTimer() {
+export function stopGuessingTimer() {
   if (roundTimer) {
     clearInterval(roundTimer);
     roundTimer = null;
   }
 }
 
+function stopRoundTimer() {
+  stopGuessingTimer();
+}
+
 function startGuessingPack(pack) {
   stopRoundTimer();
+  const deadlineMs = Date.now() + roundDuration * 1000;
   roundState = {
     pack,
     prompts: shuffleArray(pack.prompts || []),
@@ -26,17 +31,21 @@ function startGuessingPack(pack) {
     gotIt: 0,
     skipped: 0,
     timeLeft: roundDuration,
+    deadlineMs,
     finished: false
   };
   roundTimer = setInterval(async () => {
     if (!roundState || roundState.finished) return;
-    roundState.timeLeft = Math.max(0, roundState.timeLeft - 1);
-    const pill = document.getElementById('guessing-timer-pill');
-    if (pill) pill.textContent = `⏱ ${roundState.timeLeft}s`;
-    if (roundState.timeLeft <= 0) {
+    const rem = Math.max(0, Math.ceil((roundState.deadlineMs - Date.now()) / 1000));
+    if (rem !== roundState.timeLeft) {
+      roundState.timeLeft = rem;
+      const pill = document.getElementById('guessing-timer-pill');
+      if (pill) pill.textContent = rem > 0 ? `⏱ ${rem}s` : '⏱ Time Up!';
+    }
+    if (rem <= 0) {
       await finishGuessingRound();
     }
-  }, 1000);
+  }, 250);
   store.emit('change');
 }
 

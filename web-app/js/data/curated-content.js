@@ -978,3 +978,118 @@ export const OfflineRoleplayGenerator = {
     };
   }
 };
+
+// --- Arabic Language Quizzes & Arabic Arcade Games ---
+
+export const ARABIC_QUIZ_PACKS = [
+  {
+    id: 'ar_pack_nahw',
+    title: 'إعراب ونحو عربي (Arabic Grammar)',
+    topic: 'Arabic Grammar & Nahw',
+    cefrLevel: 'B1',
+    language: 'AR',
+    questions: [
+      { prompt: 'ما إعراب كلمة "الطالبُ" في جملة: "كتبَ الطالبُ الدرسَ"؟', options: ['فاعل مرفوع بالضمة', 'مفعول به منصوب', 'مبتدأ مرفوع', 'خبر مرفوع'], correctIndex: 0, timeLimitSec: 20, tip: 'من قام بالفعل (كتب) هو الفاعل ويكون مرفوعاً.' },
+      { prompt: 'ما نوع الجملة التالية: "الشمسُ مشرقةٌ في الصباح"؟', options: ['جملة اسمية', 'جملة فعلية', 'شبه جملة', 'جملة شرطية'], correctIndex: 0, timeLimitSec: 20, tip: 'تبدأ الجملة باسم "الشمس"، لذلك هي جملة اسمية تتكون من مبتدأ وخبر.' },
+      { prompt: 'ماذا تفعل "كان" وأخواتها بالجملة الاسمية؟', options: ['ترفع المبتدأ وتنصب الخبر', 'تنصب المبتدأ وترفع الخبر', 'ترفع المبتدأ والخبر معاً', 'تجر المبتدأ وتنصب الخبر'], correctIndex: 0, timeLimitSec: 20, tip: 'كان وأخواتها أفعال ناسخة ترفع اسمها وتنصب خبرها.' },
+      { prompt: 'ماذا تفعل "إنَّ" وأخواتها بالجملة الاسمية؟', options: ['تنصب المبتدأ وترفع الخبر', 'ترفع المبتدأ وتنصب الخبر', 'تجزم المبتدأ والخبر', 'تنصب المبتدأ والخبر معاً'], correctIndex: 0, timeLimitSec: 20, tip: 'إنّ وأخواتها حروف ناسخة تنصب الاسم وترفع الخبر، عكس كان.' },
+      { prompt: 'أي كلمة في الجملة التالية مفعول به: "قرأتْ سارةُ كتاباً مفيداً"؟', options: ['كتاباً', 'سارةُ', 'مفيداً', 'قرأتْ'], correctIndex: 0, timeLimitSec: 20, tip: 'المفعول به هو ما وقع عليه الفعل، وهو هنا "كتاباً" منصوب بالفتحة.' },
+      { prompt: 'ما جمع التكسير الصحيح لكلمة "قلم"؟', options: ['أقلام', 'قلمون', 'قلمات', 'قلائم'], correctIndex: 0, timeLimitSec: 20, tip: 'جمع قلم هو أقلام، وهو جمع تكسير.' },
+      { prompt: 'ما نوع الفعل "اكتبْ" من حيث الزمن؟', options: ['فعل أمر', 'فعل ماضٍ', 'فعل مضارع', 'اسم فاعل'], correctIndex: 0, timeLimitSec: 20, tip: '"اكتبْ" يدل على طلب القيام بالفعل، فهو فعل أمر مبني على السكون.' },
+      { prompt: 'أكمل بحرف الجر المناسب: "ذهبَ أحمدُ ___ المكتبةِ صباحاً".', options: ['إلى', 'على', 'عن', 'منذُ'], correctIndex: 0, timeLimitSec: 20, tip: 'حرف الجر "إلى" يفيد انتهاء الغاية المكانية عند الذهاب لمكان.' }
+    ]
+  },
+  {
+    id: 'ar_pack_vocab',
+    title: 'مفردات ومرادفات عربية (Vocabulary)',
+    topic: 'Arabic Synonyms & Antonyms',
+    cefrLevel: 'A2',
+    language: 'AR',
+    questions: [
+      { prompt: 'ما مرادف كلمة "سعيد"؟', options: ['مسرور', 'حزين', 'غاضب', 'متعب'], correctIndex: 0, timeLimitSec: 20, tip: 'سعيد ومسرور وفرح كلها تحمل معنى الفرح والسرور.' },
+      { prompt: 'ما ضد (عكس) كلمة "شجاع"؟', options: ['جبان', 'قوي', 'كريم', 'صادق'], correctIndex: 0, timeLimitSec: 20, tip: 'الشجاعة يقابلها الجُبن، فضد شجاع هو جبان.' },
+      { prompt: 'ما معنى كلمة "مثابرة"؟', options: ['الاجتهاد والاستمرار رغم الصعوبات', 'التوقف السريع عن العمل', 'النوم الطويل', 'النسيان المتكرر'], correctIndex: 0, timeLimitSec: 20, tip: 'المثابرة تعني المواظبة والإصرار على تحقيق الهدف.' },
+      { prompt: 'ما ضد كلمة "كريم"؟', options: ['بخيل', 'ذكي', 'متواضع', 'نشط'], correctIndex: 0, timeLimitSec: 20, tip: 'الكرم عكسه البخل.' },
+      { prompt: 'ما مرادف كلمة "باهر"؟', options: ['مدهش ورائع', 'ضعيف', 'مظلم', 'عادي'], correctIndex: 0, timeLimitSec: 20, tip: 'نقول "نجاح باهر" أي نجاح مدهش ولافت للأنظار.' },
+      { prompt: 'ما مفرد كلمة "ميادين"؟', options: ['ميدان', 'مدينة', 'مادة', 'مدى'], correctIndex: 0, timeLimitSec: 20, tip: 'ميدان جمعها ميادين.' },
+      { prompt: 'ما مرادف كلمة "تواضع"؟', options: ['البعد عن التكبر والغرور', 'التفاخر بالمال', 'الغضب السريع', 'العناد'], correctIndex: 0, timeLimitSec: 20, tip: 'التواضع خلق رفيع يعني لين الجانب وعدم التكبر.' },
+      { prompt: 'ما ضد كلمة "أمل"؟', options: ['يأس', 'تفاؤل', 'فرح', 'نور'], correctIndex: 0, timeLimitSec: 20, tip: 'الأمل والتفاؤل يقابلهما اليأس والقنوط.' }
+    ]
+  },
+  {
+    id: 'ar_pack_proverbs',
+    title: 'أمثال وحكم وبلاغة عربية (Proverbs)',
+    topic: 'Arabic Proverbs & Rhetoric',
+    cefrLevel: 'B2',
+    language: 'AR',
+    questions: [
+      { prompt: 'أكمل المثل العربي الشهير: "في التأني السلامة، وفي العجلة ___".', options: ['الندامة', 'الكرامة', 'السرعة', 'الغنيمة'], correctIndex: 0, timeLimitSec: 20, tip: 'يدعو المثل إلى التفكير والهدوء وتجنب التسرع.' },
+      { prompt: 'أكمل المثل: "رُبَّ أخٍ لك لم ___".', options: ['تلدهُ أمُّك', 'تعرفْ اسمه', 'تزرهُ يوماً', 'تسمعْ صوته'], correctIndex: 0, timeLimitSec: 20, tip: 'يُضرب في الصديق الوفي الذي يكون أقرب من الأخ الشقيق.' },
+      { prompt: 'ما معنى المثل: "الصديقُ وقتَ الضيق"؟', options: ['الصديق الحقيقي يظهر دعمه في الأزمات', 'الصداقة تنتهي في السفر', 'الضيق يمنع السفر', 'الوقت يمر سريعاً'], correctIndex: 0, timeLimitSec: 20, tip: 'تُعرف معادن الأصدقاء عند الشدائد والمواقف الصعبة.' },
+      { prompt: 'في البلاغة: "الجنديُّ أسدٌ في المعركة" يُسمّى:', options: ['تشبيهاً بليغاً', 'طباقاً', 'جناساً', 'استفهاماً'], correctIndex: 0, timeLimitSec: 20, tip: 'تشبيه بليغ حُذفت منه أداة التشبيه ووجه الشبه.' },
+      { prompt: 'ما المحسّن البديعي بين كلمتي "الليل والنهار"؟', options: ['طباق', 'سجع', 'جناس تام', 'تورية'], correctIndex: 0, timeLimitSec: 20, tip: 'الجمع بين الكلمة وضدها في الكلام يُسمى طباقاً.' },
+      { prompt: 'أكمل الحكمة: "من جدَّ وجد، ومن زرعَ ___".', options: ['حصد', 'رقد', 'صعد', 'سعد'], correctIndex: 0, timeLimitSec: 20, tip: 'النتائج الطيبة ثمرة العمل والاجتهاد المستمر.' }
+    ]
+  },
+  {
+    id: 'ar_pack_spelling',
+    title: 'الإملاء والهمزات (Arabic Spelling)',
+    topic: 'Arabic Spelling & Hamza',
+    cefrLevel: 'B1',
+    language: 'AR',
+    questions: [
+      { prompt: 'أي كتابة صحيحة لكلمة تحتوي همزة وصل؟', options: ['استمعَ', 'إستمعَ', 'أستمعَ', 'آستمع'], correctIndex: 0, timeLimitSec: 20, tip: 'الفعل الخماسي والسداسي ومصدرهما تبدأ بهمزة وصل بدون همزة فوق أو تحت الألف.' },
+      { prompt: 'كيف تُكتب الهمزة في كلمة "مَسْأَلَة"؟', options: ['على الألف (مسألة)', 'على الواو (مسؤلة)', 'على النبرة (مسئلة)', 'على السطر (مسءلة)'], correctIndex: 0, timeLimitSec: 20, tip: 'الهمزة مفتوحة وما قبلها ساكن، والفتحة أقوى من السكون فتُكتب على ألف.' },
+      { prompt: 'اختر الكلمة المكتوبة بشكل صحيح بالتاء المربوطة:', options: ['مكتبةٌ', 'مكتبتٌ', 'مكتبهْ', 'مكتبتا'], correctIndex: 0, timeLimitSec: 20, tip: 'تُنطق هاءً عند الوقف وتاءً عند الوصل، فتُكتب تاءً مربوطة (ة).' },
+      { prompt: 'أي جملة صحيحة إملائياً؟', options: ['حضرَ المعلمونَ مبكراً', 'حضرَ المعلمونَ مبكرن', 'حضرَ المعلموا مبكراً', 'حضرو المعلمون مبكراً'], correctIndex: 0, timeLimitSec: 20, tip: '"مبكراً" منصوبة بتنوين الفتح وتُزاد ألف التنوين، وجمع المذكر السالم لا يأخذ ألفاً بعد الواو.' },
+      { prompt: 'كيف تُكتب الألف في نهاية الفعل الثلاثي "دعا"؟', options: ['ألفاً قائمة (دعا)', 'ألفاً مقصورة (دعى)', 'ياءً (دعي)', 'تاءً (دعت)'], correctIndex: 0, timeLimitSec: 20, tip: 'أصل الألف واو (يدعو)، لذلك تُكتب ألفاً ممدودة قائمة: دعا.' },
+      { prompt: 'كيف تُكتب الألف في نهاية الفعل الثلاثي "جرى"؟', options: ['ألفاً مقصورة (جرى)', 'ألفاً قائمة (جرا)', 'هاءً (جره)', 'واواً (جرو)'], correctIndex: 0, timeLimitSec: 20, tip: 'أصل الألف ياء (يجري)، لذلك تُكتب ألفاً مقصورة: جرى.' }
+    ]
+  }
+];
+
+export const ARABIC_ARCADE_WORDS = [
+  { word: 'مكتبة', synonym: 'دار الكتب', antonym: 'ملعب', englishHint: 'Library', clue: 'مكان هادئ نقرأ ونستعير منه الكتب', cefrLevel: 'A1' },
+  { word: 'شجاع', synonym: 'مقدام', antonym: 'جبان', englishHint: 'Brave', clue: 'صفة الشخص الذي لا يخاف عند الخطر', cefrLevel: 'A2' },
+  { word: 'ابتكار', synonym: 'إبداع', antonym: 'تقليد', englishHint: 'Innovation', clue: 'اختراع فكرة أو طريقة جديدة لم تُسبق', cefrLevel: 'B1' },
+  { word: 'صداقة', synonym: 'مودة', antonym: 'عداوة', englishHint: 'Friendship', clue: 'علاقة طيبة تجمع الرفاق بالثقة والوفاء', cefrLevel: 'A1' },
+  { word: 'مثابرة', synonym: 'مواظبة', antonym: 'تراخٍ', englishHint: 'Perseverance', clue: 'الاستمرار في المحاولة حتى الوصول للنجاح', cefrLevel: 'B2' },
+  { word: 'أمل', synonym: 'تفاؤل', antonym: 'يأس', englishHint: 'Hope', clue: 'شعور إيجابي بتحقق الخير في المستقبل', cefrLevel: 'A1' },
+  { word: 'سفينة', synonym: 'باخرة', antonym: 'طائرة', englishHint: 'Ship', clue: 'وسيلة نقل ضخمة تبحر عبر المحيطات', cefrLevel: 'A1' },
+  { word: 'حاسوب', synonym: 'كمبيوتر', antonym: 'دفتر ورقي', englishHint: 'Computer', clue: 'جهاز إلكتروني لمعالجة البيانات والبرمجة', cefrLevel: 'A2' },
+  { word: 'كريم', synonym: 'جواد', antonym: 'بخيل', englishHint: 'Generous', clue: 'إنسان يعطي بسخاء ويحب مساعدة الآخرين', cefrLevel: 'A2' },
+  { word: 'سلام', synonym: 'وئام', antonym: 'حرب', englishHint: 'Peace', clue: 'حالة من الأمن والطمأنينة بين الناس', cefrLevel: 'A1' },
+  { word: 'تواضع', synonym: 'لين الجانب', antonym: 'تكبر', englishHint: 'Humility', clue: 'التعامل بلطف واحترام دون غرور', cefrLevel: 'B1' },
+  { word: 'نور', synonym: 'ضياء', antonym: 'ظلام', englishHint: 'Light', clue: 'ما يبدد العتمة ويكشف الطريق', cefrLevel: 'A1' },
+  { word: 'باهر', synonym: 'مذهل', antonym: 'باهت', englishHint: 'Brilliant', clue: 'جميل ومدهش يلفت الأنظار بقوة', cefrLevel: 'B1' },
+  { word: 'قمة', synonym: 'ذروة', antonym: 'قاع', englishHint: 'Summit', clue: 'أعلى نقطة في الجبل أو في النجاح', cefrLevel: 'A2' },
+  { word: 'تعاون', synonym: 'تكاتف', antonym: 'تنافر', englishHint: 'Cooperation', clue: 'العمل معاً بروح الفريق لإنجاز مهمة', cefrLevel: 'A2' },
+  { word: 'مستقبل', synonym: 'غد', antonym: 'ماضٍ', englishHint: 'Future', clue: 'الزمن الآتي الذي لم يأتِ بعد', cefrLevel: 'A2' }
+];
+
+export const ARABIC_VAULT_WORDS = [
+  { word: 'كتاب', arabicClue: 'صفحات مطبوعة نقرأ فيها المعرفة والعلم', englishHint: 'Book', cefrLevel: 'A1' },
+  { word: 'مدرس', arabicClue: 'يشرح الدروس ويوجه الطلاب في الصف', englishHint: 'Teacher', cefrLevel: 'A1' },
+  { word: 'مطار', arabicClue: 'تقلع منه الطائرات وتهبط للمسافرين', englishHint: 'Airport', cefrLevel: 'A1' },
+  { word: 'وطني', arabicClue: 'منسوب إلى البلد الذي ننتمي إليه ونحبه', englishHint: 'National / Homeland', cefrLevel: 'A2' },
+  { word: 'شمس', arabicClue: 'نجم يضيء كوكبنا نهاراً بالدفء والنور', englishHint: 'Sun', cefrLevel: 'A1' },
+  { word: 'سلام', arabicClue: 'ضد الحرب والخصام وبداية التحية', englishHint: 'Peace', cefrLevel: 'A1' },
+  { word: 'نجاح', arabicClue: 'ثمرة الاجتهاد والوصول إلى الهدف', englishHint: 'Success', cefrLevel: 'A1' },
+  { word: 'حوار', arabicClue: 'حديث متبادل باحترام بين طرفين', englishHint: 'Dialogue', cefrLevel: 'B1' },
+  { word: 'تعاون', arabicClue: 'عمل جماعي يتشارك فيه الأصدقاء', englishHint: 'Cooperation', cefrLevel: 'A2' },
+  { word: 'سفينة', arabicClue: 'مركب كبير يشق أمواج البحر', englishHint: 'Ship', cefrLevel: 'A2' },
+  { word: 'مكتبة', arabicClue: 'بيت الكتب الهادئ للمطالعة والبحث', englishHint: 'Library', cefrLevel: 'A1' },
+  { word: 'حاسوب', arabicClue: 'جهاز ذكي نكتب عليه ونشغل البرامج', englishHint: 'Computer', cefrLevel: 'A2' }
+];
+
+export const ARABIC_GRAMMAR_DUEL_ROUNDS = [
+  { scenarioPrompt: 'اختر الكلمة المختلفة (التي ليست من حروف الجر):', options: ['في', 'على', 'إلى', 'كتبَ'], oddIndex: 3, explanation: '"كتبَ" فعل ماضٍ، أما (في، على، إلى) فحروف جر.', level: 'A2' },
+  { scenarioPrompt: 'اختر الجملة التي كُتبت همزتها بشكل صحيح:', options: ['انتصرَ الفريقُ في المباراة', 'إنتصرَ الفريقُ في المباراة', 'أنتصرَ الفريقُ في المباراة', 'آنتصر الفريق'], oddIndex: 0, explanation: 'الفعل الخماسي "انتصر" همزته همزة وصل بدون رسم همزة.', level: 'B1' },
+  { scenarioPrompt: 'اختر الكلمة التي تمثل جمع مؤنث سالماً:', options: ['طالبات', 'طلاب', 'أقلام', 'مساجد'], oddIndex: 0, explanation: '"طالبات" ينتهي بألف وتاء زائدتين، أما الباقي فجمع تكسير.', level: 'A2' },
+  { scenarioPrompt: 'أي كلمة تعبّر عن اسم فاعل من الفعل "عَلِمَ"؟', options: ['عالِم', 'معلوم', 'عِلْم', 'يَعْلَم'], oddIndex: 0, explanation: '"عالِم" على وزن فاعل، أما معلوم فاسم مفعول وعِلم مصدر.', level: 'B1' },
+  { scenarioPrompt: 'حدد الفعل المضارع من بين الكلمات التالية:', options: ['يرسمُ', 'رسمَ', 'ارسمْ', 'رسّام'], oddIndex: 0, explanation: '"يرسمُ" فعل مضارع يدل على الحاضر أو المستقبل.', level: 'A1' },
+  { scenarioPrompt: 'اختر المرادف الأدق لكلمة "شغف":', options: ['حبٌّ شديد واهتمام', 'خوف وتردد', 'نوم عميق', 'ملل سريع'], oddIndex: 0, explanation: 'الشغف يعني الحماس والحب الكبير لتعلّم شيء أو عمله.', level: 'B2' },
+  { scenarioPrompt: 'أي جملة تستخدم "أمسِ" في زمن مناسب؟', options: ['سافرتُ إلى القاهرة أمسِ', 'سأسافرُ إلى القاهرة أمسِ', 'اكتبْ الدرسَ أمسِ', 'أحضرْ غداً أمسِ'], oddIndex: 0, explanation: '"أمسِ" ظرف يدل على الماضي فيأتي مع الفعل الماضي "سافرتُ".', level: 'A2' },
+  { scenarioPrompt: 'اختر الكلمة الصحيحة إملائياً:', options: ['شاطئ', 'شاطء', 'شاطؤ', 'شاطأ'], oddIndex: 0, explanation: 'تُكتب الهمزة المتطرفة على ياء غير منقوطة (ئ) لأن ما قبلها مكسور (طِ).', level: 'B1' }
+];
+

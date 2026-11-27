@@ -335,16 +335,19 @@ export function openInGameSquadChatModal() {
   );
 
   const input = el('input', { type: 'text', className: 'field flex-1', placeholder: 'Send a quick squad note...' });
+  const sendQuickMsg = () => {
+    const val = (input.value || '').trim();
+    if (!val) return;
+    input.value = '';
+    store.sendTeamMessage(val);
+    input.focus({ preventScroll: true });
+  };
   const sendBtn = el(
     'button',
     {
-      type: 'button',
+      type: 'submit',
       className: 'btn btn-primary',
-      onClick: () => {
-        if (!input.value.trim()) return;
-        store.sendTeamMessage(input.value);
-        input.value = '';
-      }
+      onMouseDown: (e) => e.preventDefault()
     },
     'Send'
   );
@@ -353,7 +356,18 @@ export function openInGameSquadChatModal() {
     el('p', { className: 'small muted', style: { margin: 0 } }, `Active Channel: ${store.profile?.teamName || 'Club Squad'}`),
     listEl,
     quickRow,
-    el('div', { className: 'row' }, input, sendBtn)
+    el(
+      'form',
+      {
+        className: 'row',
+        onSubmit: (e) => {
+          e.preventDefault();
+          sendQuickMsg();
+        }
+      },
+      input,
+      sendBtn
+    )
   );
   renderMsgs();
 

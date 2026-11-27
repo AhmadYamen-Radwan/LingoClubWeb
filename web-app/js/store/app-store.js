@@ -3,7 +3,10 @@
 import {
   ActivityType,
   BadgeEngine,
+  CEFR_LABELS,
   CefrLevel,
+  DIFFICULTY_CONFIG,
+  DIFFICULTY_LEVELS,
   LINGO_BADGES,
   RoomStatus,
   computeQuizPointsEarned,
@@ -14,8 +17,10 @@ import { firebaseClient, DEFAULT_TEACHER_HUB_ID } from '../services/firebase-cli
 import {
   OfflineStore,
   OFFLINE_DEFAULT_TEAM_ID,
+  getSavedDifficulty,
   getSavedExplorerName,
   getThemeMode,
+  setSavedDifficulty,
   setThemeMode
 } from '../services/offline-store.js';
 import { nearbySync } from '../services/nearby-sync.js';
@@ -47,12 +52,16 @@ class AppStore extends EventTarget {
     // Live Kahoot Room State
     this.roomSession = null;
     this._recordedPodiumRooms = new Set();
+    this._roomClockKey = '';
+    this._roomClockStartedMs = 0;
+    this._lastRoomPhaseKey = '';
 
     // Nearby cross-tab squad state
     this.nearbySnapshot = nearbySync.getSnapshot();
 
-    // UI Global Filters & Theme
+    // UI Global Filters, Difficulty & Theme
     this.selectedCefrFilter = null; // null | 'A1'|'A2'|'B1'|'B2'
+    this.selectedDifficulty = getSavedDifficulty(); // 'EASY' | 'MEDIUM' | 'HARD'
     this.authError = '';
     this.themeMode = getThemeMode();
     setThemeMode(this.themeMode);
@@ -393,6 +402,20 @@ class AppStore extends EventTarget {
     return !this.isOfflineMode && firebaseClient.isBootstrappedTutor();
   }
 
+  get difficultyConfig() {
+    return DIFFICULTY_CONFIG[this.selectedDifficulty] || DIFFICULTY_CONFIG.MEDIUM;
+  }
+
+  setDifficulty(level) {
+    const clean = DIFFICULTY_LEVELS.includes(String(level || '').toUpperCase())
+      ? String(level).toUpperCase()
+      : 'MEDIUM';
+    this.selectedDifficulty = clean;
+    setSavedDifficulty(clean);
+    this.toast(`Difficulty set to ${DIFFICULTY_CONFIG[clean].label}`);
+    this.emit('change');
+  }
+
   setCefrFilter(levelOrNull) {
     this.selectedCefrFilter = this.selectedCefrFilter === levelOrNull ? null : levelOrNull;
     this.emit('change');
@@ -416,17 +439,19 @@ class AppStore extends EventTarget {
   }
 
   async updateLearningLevel(level) {
+    const label = CEFR_LABELS[level] || level;
     if (this.isOfflineMode) {
       this.profile = this.offlineStore.updateLearningLevel(level);
       this.emit('change');
-      this.toast(`Learning level set to ${level}`);
+      this.toast(`Student level set to ${label}`);
       return;
     }
     this.profile = { ...this.profile, learningLevel: level };
     this.emit('change');
     try {
       await firebaseClient.updateLearningLevel(level);
-      this.toast(`Learning level updated to ${level}`);
+      await this._syncTutorIfLinked();
+      this.toast(`Student level updated to ${label}`);
     } catch (err) {
       this.toast(err.message, 'error');
     }
@@ -1072,6 +1097,51 @@ class AppStore extends EventTarget {
     }
   }
 
+  _syncRoomClock(room) {
+    if (!room) return;
+    const qIdx = Number(room.currentQuestionIndex || 0);
+    const key = `${room.roomCode}_${room.status}_${qIdx}_${room.questionStartedAtMs || 0}`;
+    if (room.status !== RoomStatus.QUESTION) {
+      this._lastRoomPhaseKey = key;
+      return;
+    }
+    if (this._roomClockKey !== key) {
+      const q = room.questions?.[qIdx];
+      const totalSec = Number(q?.timeLimitSec || 20);
+      const rawStarted = Number(room.questionStartedAtMs || Date.now());
+      const rawElapsed = Date.now() - rawStarted;
+      const isHostOrLocal = Boolean(this.roomSession?.isHost || this.roomSession?.mode === 'LOCAL');
+      if (isHostOrLocal) {
+        this._roomClockStartedMs = rawElapsed < 0 ? Date.now() : rawStarted;
+      } else if (this._lastRoomPhaseKey && this._lastRoomPhaseKey !== key) {
+        // Real-time transition observed on this device: anchor clock cleanly to avoid host/player device clock skew
+        this._roomClockStartedMs = rawElapsed >= 0 && rawElapsed <= 2500 ? rawStarted : Date.now();
+      } else {
+        // Joined mid-question: guard against negative or wildly future/stale client clock skew
+        if (rawElapsed < 0) {
+          this._roomClockStartedMs = Date.now();
+        } else if (rawElapsed > totalSec * 1000 + 2000) {
+          this._roomClockStartedMs = Date.now() - Math.max(0, (totalSec - 5) * 1000);
+        } else {
+          this._roomClockStartedMs = rawStarted;
+        }
+      }
+      this._roomClockKey = key;
+    }
+    this._lastRoomPhaseKey = key;
+  }
+
+  getLiveRoomTimeRemaining(room, q) {
+    const totalSec = Math.max(1, Number(q?.timeLimitSec || this.difficultyConfig?.timeLimitSec || 20));
+    if (!room || room.status !== RoomStatus.QUESTION) {
+      return { leftSec: 0, totalSec, elapsedSec: totalSec };
+    }
+    this._syncRoomClock(room);
+    const elapsedSec = Math.max(0, (Date.now() - this._roomClockStartedMs) / 1000);
+    const leftSec = Math.max(0, Math.ceil(totalSec - elapsedSec));
+    return { leftSec, totalSec, elapsedSec };
+  }
+
   async submitLiveAnswer(optionIndex) {
     const s = this.roomSession;
     if (!s?.room) return;
@@ -1080,11 +1150,9 @@ class AppStore extends EventTarget {
     const q = s.room.questions?.[qIdx];
     if (!q) return;
 
-    const totalSec = Number(q.timeLimitSec || 20);
-    const elapsedSec = (Date.now() - Number(s.room.questionStartedAtMs || Date.now())) / 1000;
-    const remainingSec = Math.max(0, totalSec - elapsedSec);
+    const { leftSec, totalSec } = this.getLiveRoomTimeRemaining(s.room, q);
     const correct = Number(optionIndex) === Number(q.correctIndex);
-    const points = computeQuizPointsEarned(correct, remainingSec, totalSec, s.localStreak);
+    const points = computeQuizPointsEarned(correct, leftSec, totalSec, s.localStreak);
     const newScore = (s.localScore || 0) + points;
     const newStreak = correct ? (s.localStreak || 0) + 1 : 0;
 
@@ -1199,6 +1267,9 @@ class AppStore extends EventTarget {
   async leaveLiveRoom() {
     const s = this.roomSession;
     this._clearRoomUnsubs();
+    this._roomClockKey = '';
+    this._roomClockStartedMs = 0;
+    this._lastRoomPhaseKey = '';
     this.roomSession = null;
     this.emit('change');
     if (s?.isHost && s.roomCode) {

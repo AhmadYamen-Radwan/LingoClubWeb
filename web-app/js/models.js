@@ -8,6 +8,49 @@ export const CefrLevel = Object.freeze({
   B2: 'B2'
 });
 export const CEFR_LEVELS = ['A1', 'A2', 'B1', 'B2'];
+export const CEFR_LABELS = Object.freeze({
+  A1: 'A1 · Beginner',
+  A2: 'A2 · Elementary',
+  B1: 'B1 · Intermediate',
+  B2: 'B2 · Upper-Int'
+});
+
+export const DIFFICULTY_LEVELS = ['EASY', 'MEDIUM', 'HARD'];
+export const DIFFICULTY_CONFIG = Object.freeze({
+  EASY: {
+    id: 'EASY',
+    label: '🟢 Easy',
+    short: 'Easy',
+    timeLimitSec: 30,
+    dashDurationSec: 45,
+    detectiveLives: 8,
+    vaultRows: 6,
+    duelDurationSec: 55,
+    xpMultiplier: 1.0
+  },
+  MEDIUM: {
+    id: 'MEDIUM',
+    label: '🟡 Medium',
+    short: 'Medium',
+    timeLimitSec: 20,
+    dashDurationSec: 30,
+    detectiveLives: 6,
+    vaultRows: 5,
+    duelDurationSec: 40,
+    xpMultiplier: 1.25
+  },
+  HARD: {
+    id: 'HARD',
+    label: '🔴 Hard',
+    short: 'Hard',
+    timeLimitSec: 12,
+    dashDurationSec: 20,
+    detectiveLives: 4,
+    vaultRows: 4,
+    duelDurationSec: 25,
+    xpMultiplier: 1.5
+  }
+});
 
 export const RoomStatus = Object.freeze({
   LOBBY: 'LOBBY',
@@ -311,7 +354,7 @@ export function el(tag, attrs = {}, ...children) {
 export function createDefaultProfile({
   userId = 'offline_explorer',
   displayName = 'Offline Explorer',
-  learningLevel = 'B2',
+  learningLevel = 'B1',
   accountRole = 'STUDENT'
 } = {}) {
   return {

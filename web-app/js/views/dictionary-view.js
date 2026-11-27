@@ -54,6 +54,7 @@ export function renderDictionaryView({ navigate }) {
       el('span', { className: 'badge-pill card-soft-primary mono' }, `${matches.length.toLocaleString()} matches`)
     ),
     el('input', {
+      id: 'dictionary-search-input',
       type: 'search',
       className: 'field',
       placeholder: 'Search English word, Arabic translation, or topic...',

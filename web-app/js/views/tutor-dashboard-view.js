@@ -1,6 +1,6 @@
 // Tutor Dashboard & Student Progress Portal View (1:1 port of TutorDashboardScreen.kt)
 
-import { CEFR_LEVELS, el } from '../models.js';
+import { CEFR_LABELS, CEFR_LEVELS, el } from '../models.js';
 import { store } from '../store/app-store.js';
 import { createCefrBadge } from '../components/ui-shared.js';
 
@@ -108,12 +108,12 @@ export function renderTutorDashboardView({ navigate }) {
           ),
 
           // Search + CEFR Filter
-          el('input', { type: 'search', className: 'field', placeholder: 'Search student name...', value: searchFilter, onInput: (e) => { searchFilter = e.target.value; store.emit('change'); } }),
+          el('input', { id: 'tutor-search-input', type: 'search', className: 'field', placeholder: 'Search student name...', value: searchFilter, onInput: (e) => { searchFilter = e.target.value; store.emit('change'); } }),
           el(
             'div',
             { className: 'scroll-x' },
-            el('button', { type: 'button', className: `chip ${cefrFilter === 'ALL' ? 'selected' : ''}`, onClick: () => { cefrFilter = 'ALL'; store.emit('change'); } }, 'All'),
-            ...CEFR_LEVELS.map((l) => el('button', { type: 'button', className: `chip ${cefrFilter === l ? 'selected' : ''}`, onClick: () => { cefrFilter = l; store.emit('change'); } }, l))
+            el('button', { type: 'button', className: `chip ${cefrFilter === 'ALL' ? 'selected' : ''}`, onClick: () => { cefrFilter = 'ALL'; store.emit('change'); } }, 'All Levels'),
+            ...CEFR_LEVELS.map((l) => el('button', { type: 'button', className: `chip ${cefrFilter === l ? 'selected' : ''}`, onClick: () => { cefrFilter = l; store.emit('change'); } }, CEFR_LABELS[l] || l))
           ),
 
           students.length === 0
@@ -145,7 +145,7 @@ export function renderTutorDashboardView({ navigate }) {
                   ? el(
                       'div',
                       { className: 'card stack-md' },
-                      el('div', { className: 'row-between' }, el('h2', { className: 'section-title' }, selectedStudent.studentName), createCefrBadge(selectedStudent.learningLevel)),
+                      el('div', { className: 'row-between' }, el('h2', { className: 'section-title' }, selectedStudent.studentName), el('span', { className: 'badge-pill card-soft-primary' }, CEFR_LABELS[selectedStudent.learningLevel] || selectedStudent.learningLevel || 'B1')),
                       el(
                         'div',
                         { className: 'grid-stats' },

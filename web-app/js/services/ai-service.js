@@ -1,10 +1,16 @@
-// Gemini REST AI Generator + Deterministic Offline Curriculum & General Facts Engine
-// Replicates LingoAiGenerator.kt and extends it with up to 60 questions + general knowledge topics.
+// Gemini REST AI Generator + Deterministic Offline Curriculum, Arabic & General Facts Engine
+// Replicates LingoAiGenerator.kt and extends it with up to 60 questions, custom free prompts, difficulties, and Arabic quizzes.
 
-import { OfflineRoleplayGenerator, QUIZ_PACKS } from '../data/curated-content.js';
+import {
+  ARABIC_ARCADE_WORDS,
+  ARABIC_GRAMMAR_DUEL_ROUNDS,
+  ARABIC_QUIZ_PACKS,
+  OfflineRoleplayGenerator,
+  QUIZ_PACKS
+} from '../data/curated-content.js';
 import { WEEKLY_CURRICULUM } from '../data/weekly-curriculum.js';
 import { CURATED_DICTIONARY, getLoadedDictionarySync } from '../data/dictionary.js';
-import { CefrLevel, shuffleArray } from '../models.js';
+import { CefrLevel, DIFFICULTY_CONFIG, shuffleArray } from '../models.js';
 import { getSavedGeminiKey } from './offline-store.js';
 
 const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
@@ -68,7 +74,14 @@ function wordExample(w) {
   return String(w?.storyLine || w?.exampleSentence || w?.example || w?.meaning || '').trim();
 }
 
-function normalizeQuizQuestion(q, cefrLevel) {
+function timeLimitFor(cefrLevel, difficulty) {
+  const diffCfg = DIFFICULTY_CONFIG[difficulty] || DIFFICULTY_CONFIG.MEDIUM;
+  if (difficulty === 'EASY') return cefrLevel === 'A1' ? 35 : diffCfg.timeLimitSec;
+  if (difficulty === 'HARD') return cefrLevel === 'B2' ? 10 : diffCfg.timeLimitSec;
+  return cefrLevel === 'A1' || cefrLevel === 'A2' ? 22 : diffCfg.timeLimitSec;
+}
+
+function normalizeQuizQuestion(q, cefrLevel, difficulty = 'MEDIUM') {
   const opts = (Array.isArray(q?.options) ? q.options : [])
     .map((s) => String(s ?? '').trim())
     .filter(Boolean)
@@ -79,7 +92,7 @@ function normalizeQuizQuestion(q, cefrLevel) {
     prompt,
     options: opts,
     correctIndex: Math.min(Math.max(Number(q?.correctIndex) || 0, 0), 3),
-    timeLimitSec: cefrLevel === 'A1' || cefrLevel === 'A2' ? 20 : 18,
+    timeLimitSec: timeLimitFor(cefrLevel, difficulty),
     tip: String(q?.tip || '').trim()
   };
 }
@@ -117,20 +130,35 @@ async function callGeminiJson(prompt, maxOutputTokens = 4096) {
   }
 }
 
-function isGeneralTopic(topic, quizMode) {
+function isGeneralTopic(topic, quizMode, customPrompt = '') {
   if (quizMode === 'GENERAL') return true;
-  if (quizMode === 'VOCAB') return false;
-  const t = String(topic || '').toLowerCase();
+  if (quizMode === 'VOCAB' || quizMode === 'ARABIC') return false;
+  const t = `${topic || ''} ${customPrompt || ''}`.toLowerCase();
   return /(general|fact|trivia|science|space|planet|history|geography|tech|computer|ai|animal|nature|sport|culture|movie|music|world|math|food)/.test(t);
 }
 
-function buildOfflineQuizDraft({ topic, cefrLevel, questionCount, focusWords = [], quizMode = 'AUTO' }) {
-  const cleanTopic = String(topic || 'General Knowledge & English').trim() || 'General Knowledge & English';
-  const topicLow = cleanTopic.toLowerCase();
-  const count = Math.min(Math.max(Number(questionCount) || 10, 3), 60);
-  const preferGeneral = isGeneralTopic(cleanTopic, quizMode);
+function isArabicTopic(topic, quizMode, customPrompt = '') {
+  if (quizMode === 'ARABIC') return true;
+  const combined = `${topic || ''} ${customPrompt || ''}`;
+  return /[\u0600-\u06FF]/.test(combined) || /\b(arabic|nahw|saraf|balagha|hamza|عربي|نحو|إملاء)\b/i.test(combined);
+}
 
-  // Build normalized bilingual word pool (400 weekly words + curated + loaded dictionary)
+function buildOfflineQuizDraft({
+  topic,
+  cefrLevel,
+  questionCount,
+  focusWords = [],
+  quizMode = 'AUTO',
+  difficulty = 'MEDIUM',
+  customPrompt = ''
+}) {
+  const cleanTopic = String(topic || 'General Knowledge & English').trim() || 'General Knowledge & English';
+  const cleanCustom = String(customPrompt || '').trim();
+  const searchBasis = `${cleanTopic} ${cleanCustom}`.toLowerCase();
+  const count = Math.min(Math.max(Number(questionCount) || 10, 3), 60);
+  const preferGeneral = isGeneralTopic(cleanTopic, quizMode, cleanCustom);
+  const preferArabic = isArabicTopic(cleanTopic, quizMode, cleanCustom);
+
   const weeklyNormalized = WEEKLY_CURRICULUM.flatMap((w) => w.words || [])
     .map((w) => ({
       english: wordEnglish(w),
@@ -162,15 +190,59 @@ function buildOfflineQuizDraft({ topic, cefrLevel, questionCount, focusWords = [
   const questions = [];
   const usedPrompts = new Set();
   const pushUnique = (q) => {
-    const normalized = normalizeQuizQuestion(q, cefrLevel);
+    const normalized = normalizeQuizQuestion(q, cefrLevel, difficulty);
     if (!normalized.prompt || usedPrompts.has(normalized.prompt.toLowerCase())) return false;
     usedPrompts.add(normalized.prompt.toLowerCase());
     questions.push(normalized);
     return true;
   };
 
-  // 1. General Knowledge & Curated Trivia Packs (prioritized when topic is general facts / trivia)
-  const topicTokens = topicLow.split(/[^a-z0-9]+/).filter((t) => t.length >= 3);
+  // Arabic-first offline bank when quizMode is ARABIC or topic is Arabic
+  if (preferArabic) {
+    const arPackQs = ARABIC_QUIZ_PACKS.flatMap((p) => p.questions || []);
+    const arDuelQs = ARABIC_GRAMMAR_DUEL_ROUNDS.map((r) => ({
+      prompt: r.scenarioPrompt,
+      options: r.options,
+      correctIndex: r.oddIndex,
+      tip: r.explanation
+    }));
+    for (const q of [...shuffleArray(arPackQs), ...shuffleArray(arDuelQs)]) {
+      if (questions.length >= count) break;
+      pushUnique(q);
+    }
+    // Synthesize additional Arabic Synonym / Antonym / Clue questions from ARABIC_ARCADE_WORDS
+    for (const item of shuffleArray(ARABIC_ARCADE_WORDS)) {
+      if (questions.length >= count) break;
+      const others = shuffleArray(ARABIC_ARCADE_WORDS.filter((x) => x.word !== item.word)).slice(0, 3);
+      if (others.length < 3) continue;
+      const optsSyn = shuffleArray([item.synonym, ...others.map((o) => o.synonym)]);
+      pushUnique({
+        prompt: `ما مرادف كلمة "${item.word}"؟`,
+        options: optsSyn,
+        correctIndex: Math.max(0, optsSyn.indexOf(item.synonym)),
+        tip: `${item.word} معناها (${item.synonym}) وضدها (${item.antonym}).`
+      });
+      if (questions.length >= count) break;
+      const optsAnt = shuffleArray([item.antonym, ...others.map((o) => o.antonym)]);
+      pushUnique({
+        prompt: `ما ضد (عكس) كلمة "${item.word}"؟`,
+        options: optsAnt,
+        correctIndex: Math.max(0, optsAnt.indexOf(item.antonym)),
+        tip: `عكس ${item.word} هو ${item.antonym}.`
+      });
+      if (questions.length >= count) break;
+      const optsWord = shuffleArray([item.word, ...others.map((o) => o.word)]);
+      pushUnique({
+        prompt: `أي كلمة عربية تناسب الوصف: "${item.clue}"؟`,
+        options: optsWord,
+        correctIndex: Math.max(0, optsWord.indexOf(item.word)),
+        tip: `${item.word}: ${item.clue} (${item.englishHint})`
+      });
+    }
+  }
+
+  // General Knowledge & Curated Trivia Packs
+  const topicTokens = searchBasis.split(/[^a-z0-9\u0600-\u06FF]+/).filter((t) => t.length >= 2);
   const matchedFacts = GENERAL_FACTS_BANK.filter((f) =>
     topicTokens.some((tok) => f.topic.includes(tok) || f.prompt.toLowerCase().includes(tok))
   );
@@ -194,21 +266,21 @@ function buildOfflineQuizDraft({ topic, cefrLevel, questionCount, focusWords = [
       if (questions.length >= count) break;
       pushUnique(q);
     }
-  } else if (matchedPackQs.length || matchedFacts.length) {
+  } else if (!preferArabic && (matchedPackQs.length || matchedFacts.length)) {
     for (const q of [...shuffleArray(matchedPackQs), ...shuffleArray(matchedFacts)]) {
       if (questions.length >= count) break;
       pushUnique(q);
     }
   }
 
-  // 2. Bilingual & Definition Vocabulary Pool (fills up to 60 unique questions cleanly)
+  // Bilingual & Definition Vocabulary Pool (fills up to 60 unique questions cleanly)
   const allWords = [...weeklyNormalized, ...dictNormalized];
   const matchedWords = allWords.filter((w) => {
     const engLow = w.english.toLowerCase();
     const meanLow = w.meaning.toLowerCase();
     const exLow = w.example.toLowerCase();
     if (focusSet.has(engLow)) return true;
-    return topicTokens.some((tok) => engLow.includes(tok) || meanLow.includes(tok) || exLow.includes(tok));
+    return topicTokens.some((tok) => engLow.includes(tok) || meanLow.includes(tok) || exLow.includes(tok) || w.arabic.includes(tok));
   });
 
   const levelWords = weeklyNormalized.filter((w) => w.cefrLevel === cefrLevel || cefrLevel === CefrLevel.B2);
@@ -216,7 +288,7 @@ function buildOfflineQuizDraft({ topic, cefrLevel, questionCount, focusWords = [
     ...matchedWords,
     ...shuffleArray(levelWords),
     ...shuffleArray(weeklyNormalized),
-    ...shuffleArray(dictNormalized).slice(0, 300)
+    ...shuffleArray(dictNormalized).slice(0, 350)
   ];
 
   const uniqueWords = [];
@@ -227,7 +299,7 @@ function buildOfflineQuizDraft({ topic, cefrLevel, questionCount, focusWords = [
       seenWords.add(key);
       uniqueWords.push(w);
     }
-    if (uniqueWords.length >= count * 2 + 40) break;
+    if (uniqueWords.length >= count * 2 + 50) break;
   }
 
   let cursor = 0;
@@ -249,20 +321,22 @@ function buildOfflineQuizDraft({ topic, cefrLevel, questionCount, focusWords = [
 
     const variant = questions.length % 3;
     let candidateQ;
-    if (variant === 0) {
+    if (preferArabic || variant === 1) {
+      const opts = shuffleArray([target.english, ...distractors.map((d) => d.english)]);
+      candidateQ = {
+        prompt: preferArabic
+          ? `ما الترجمة الإنجليزية الصحيحة لكلمة "${target.arabic}"؟`
+          : `[${cleanTopic}] Which English word matches "${target.arabic}"?`,
+        options: opts,
+        correctIndex: Math.max(0, opts.indexOf(target.english)),
+        tip: target.example || `${target.arabic} = ${target.english}`
+      };
+    } else if (variant === 0) {
       const opts = shuffleArray([target.arabic, ...distractors.map((d) => d.arabic)]);
       candidateQ = {
         prompt: `[${cleanTopic}] What is the Arabic meaning of "${target.english}"?`,
         options: opts,
         correctIndex: Math.max(0, opts.indexOf(target.arabic)),
-        tip: target.example || `${target.english} = ${target.arabic}`
-      };
-    } else if (variant === 1) {
-      const opts = shuffleArray([target.english, ...distractors.map((d) => d.english)]);
-      candidateQ = {
-        prompt: `[${cleanTopic}] Which English word matches "${target.arabic}"?`,
-        options: opts,
-        correctIndex: Math.max(0, opts.indexOf(target.english)),
         tip: target.example || `${target.english} = ${target.arabic}`
       };
     } else if (target.meaning && distractors.every((d) => d.meaning)) {
@@ -285,7 +359,6 @@ function buildOfflineQuizDraft({ topic, cefrLevel, questionCount, focusWords = [
     pushUnique(candidateQ);
   }
 
-  // Final safety pass with remaining trivia/packs if ever short
   if (questions.length < count) {
     for (const q of [...shuffleArray(otherFacts), ...shuffleArray(otherPackQs)]) {
       if (questions.length >= count) break;
@@ -297,6 +370,8 @@ function buildOfflineQuizDraft({ topic, cefrLevel, questionCount, focusWords = [
     title: `${cleanTopic} (${cefrLevel})`.slice(0, 80),
     topic: cleanTopic.slice(0, 40),
     cefrLevel,
+    difficulty,
+    language: preferArabic ? 'AR' : 'EN',
     questions: questions.slice(0, count),
     source: 'OFFLINE'
   };
@@ -364,9 +439,12 @@ export const aiService = {
     questionCount = 10,
     focusWords = [],
     quizMode = 'AUTO',
+    difficulty = 'MEDIUM',
+    customPrompt = '',
     onProgress = null
   }) {
-    const cleanTopic = String(topic || 'General Knowledge & English').trim().slice(0, 80) || 'General Knowledge & English';
+    const cleanTopic = String(topic || (quizMode === 'ARABIC' ? 'اللغة العربية والثقافة العامة' : 'General Knowledge & English')).trim().slice(0, 80) || 'General Knowledge & English';
+    const cleanCustom = String(customPrompt || '').trim().slice(0, 800);
     const count = Math.min(Math.max(Number(questionCount) || 10, 3), 60);
     const cleanFocus = (Array.isArray(focusWords) ? focusWords : [])
       .map((w) => String(w || '').trim())
@@ -374,12 +452,21 @@ export const aiService = {
     const vocabHint = cleanFocus.length
       ? ` Incorporate several of these vocabulary words naturally: ${cleanFocus.slice(0, 12).join(', ')}.`
       : '';
+    const diffInstruction =
+      difficulty === 'HARD'
+        ? 'Make the questions challenging with subtle, plausible distractors (Hard difficulty).'
+        : difficulty === 'EASY'
+          ? 'Keep the questions straightforward and beginner-friendly with clear options (Easy difficulty).'
+          : 'Use balanced, engaging medium-difficulty questions.';
     const styleInstruction =
-      quizMode === 'VOCAB'
-        ? `Focus on English vocabulary, definitions, usage in sentences, and Arabic translations where helpful for CEFR ${cefrLevel}.`
-        : quizMode === 'GENERAL'
-          ? `Create engaging general knowledge, trivia, and real-world fact multiple-choice questions on "${cleanTopic}", written in clear English appropriate for CEFR level ${cefrLevel}.`
-          : `Create accurate, engaging multiple-choice questions directly about "${cleanTopic}" (real facts/trivia if it's a general/science/history/culture topic, or interactive language/grammar/usage questions if it's an English study topic), written in clear English calibrated for CEFR level ${cefrLevel}.`;
+      quizMode === 'ARABIC'
+        ? `Write ALL questions, all 4 options, and tips in clear Arabic (العربية الفصحى) suitable for level ${cefrLevel}, covering "${cleanTopic}".`
+        : quizMode === 'VOCAB'
+          ? `Focus on English vocabulary, definitions, usage in sentences, and Arabic translations where helpful for CEFR ${cefrLevel}.`
+          : quizMode === 'GENERAL'
+            ? `Create engaging general knowledge, trivia, and real-world fact multiple-choice questions on "${cleanTopic}", written in clear English appropriate for CEFR level ${cefrLevel}.`
+            : `Create accurate, engaging multiple-choice questions directly about "${cleanTopic}" (real facts/trivia if it's a general/science/history/culture topic, Arabic if requested, or interactive language/grammar/usage questions if it's an English study topic), calibrated for CEFR level ${cefrLevel}.`;
+    const customInstruction = cleanCustom ? ` User custom instructions (MUST FOLLOW): ${cleanCustom}` : '';
 
     const apiKey = getSavedGeminiKey();
     if (apiKey) {
@@ -389,7 +476,6 @@ export const aiService = {
         let quizTitle = `${cleanTopic} (${cefrLevel})`;
         let resolvedTopic = cleanTopic;
 
-        // Generate in batches of up to 20 so 50-question quizzes never truncate JSON output
         const maxPerBatch = 20;
         const totalBatches = Math.ceil(count / maxPerBatch);
 
@@ -408,7 +494,7 @@ export const aiService = {
 
           const prompt =
             `Create an interactive Kahoot-style quiz on the topic "${cleanTopic}" with exactly ${batchTarget} distinct multiple-choice questions.${vocabHint} ` +
-            `${styleInstruction}${avoidList} ` +
+            `${styleInstruction} ${diffInstruction}${customInstruction}${avoidList} ` +
             `Return strict JSON: {"title":"...","topic":"...","questions":[{"prompt":"...","options":["...","...","...","..."],"correctIndex":0,"tip":"..."}]}. ` +
             `Keep each question clear and concise with 4 distinct options and a short helpful explanation in "tip".`;
 
@@ -417,7 +503,7 @@ export const aiService = {
             if (batchIdx === 0 && json.title) quizTitle = String(json.title).trim();
             if (batchIdx === 0 && json.topic) resolvedTopic = String(json.topic).trim();
             for (const rawQ of json.questions) {
-              const q = normalizeQuizQuestion(rawQ, cefrLevel);
+              const q = normalizeQuizQuestion(rawQ, cefrLevel, difficulty);
               const key = q.prompt.toLowerCase();
               if (q.prompt && !seenPrompts.has(key)) {
                 seenPrompts.add(key);
@@ -429,14 +515,15 @@ export const aiService = {
         }
 
         if (collected.length > 0) {
-          // If Gemini returned slightly fewer than requested (e.g. 47/50), top up cleanly without failing
           if (collected.length < count) {
             const topUp = buildOfflineQuizDraft({
               topic: cleanTopic,
               cefrLevel,
               questionCount: count,
               focusWords: cleanFocus,
-              quizMode
+              quizMode,
+              difficulty,
+              customPrompt: cleanCustom
             });
             for (const q of topUp.questions) {
               if (collected.length >= count) break;
@@ -452,6 +539,8 @@ export const aiService = {
             title: quizTitle.slice(0, 80),
             topic: resolvedTopic.slice(0, 40),
             cefrLevel,
+            difficulty,
+            language: quizMode === 'ARABIC' || isArabicTopic(cleanTopic, quizMode, cleanCustom) ? 'AR' : 'EN',
             questions: collected.slice(0, count),
             source: 'GEMINI'
           };
@@ -466,7 +555,9 @@ export const aiService = {
       cefrLevel,
       questionCount: count,
       focusWords: cleanFocus,
-      quizMode
+      quizMode,
+      difficulty,
+      customPrompt: cleanCustom
     });
   },
 

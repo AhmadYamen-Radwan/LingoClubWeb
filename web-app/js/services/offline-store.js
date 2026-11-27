@@ -14,6 +14,7 @@ const SHARED_MESSAGES_KEY = `${PREFIX}shared_messages`;
 const THEME_KEY = `${PREFIX}theme_mode`;
 const GEMINI_KEY = `${PREFIX}gemini_api_key`;
 const LAST_EXPLORER_NAME_KEY = `${PREFIX}explorer_name`;
+const DIFFICULTY_KEY = `${PREFIX}difficulty_mode`;
 
 export const OFFLINE_DEFAULT_TEAM_ID = 'offline_explorers_hub';
 
@@ -448,4 +449,15 @@ export function getSavedExplorerName() {
 export function setSavedExplorerName(name) {
   const clean = String(name || '').trim().slice(0, 50);
   if (clean) localStorage.setItem(LAST_EXPLORER_NAME_KEY, clean);
+}
+
+export function getSavedDifficulty() {
+  const val = localStorage.getItem(DIFFICULTY_KEY);
+  return val === 'EASY' || val === 'HARD' ? val : 'MEDIUM';
+}
+
+export function setSavedDifficulty(diff) {
+  const clean = diff === 'EASY' || diff === 'HARD' ? diff : 'MEDIUM';
+  localStorage.setItem(DIFFICULTY_KEY, clean);
+  return clean;
 }

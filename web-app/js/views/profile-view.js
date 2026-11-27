@@ -1,6 +1,6 @@
 // Profile, Badges & Session History View (1:1 port of ProfileScreen.kt)
 
-import { ACTIVITY_LABELS, BadgeCategory, CEFR_LEVELS, LINGO_BADGES, el } from '../models.js';
+import { ACTIVITY_LABELS, BadgeCategory, CEFR_LABELS, CEFR_LEVELS, DIFFICULTY_CONFIG, DIFFICULTY_LEVELS, LINGO_BADGES, el } from '../models.js';
 import { store } from '../store/app-store.js';
 import { createCefrBadge, openAiKeyModal } from '../components/ui-shared.js';
 
@@ -8,8 +8,11 @@ let selectedBadgeCategory = 'ALL';
 
 export function renderProfileView({ navigate }) {
   const p = store.profile || {};
+  const activeLevel = p.learningLevel || 'B1';
+  const activeDiff = store.selectedDifficulty || 'MEDIUM';
   const earnedSet = new Set(p.earnedBadges || []);
   const nameInput = el('input', {
+    id: 'profile-display-name-input',
     type: 'text',
     className: 'field flex-1',
     value: p.displayName || store.currentUserName,
@@ -102,7 +105,7 @@ export function renderProfileView({ navigate }) {
       el(
         'div',
         { className: 'stack-xs' },
-        el('div', { className: 'field-label' }, 'Active CEFR Learning Level'),
+        el('div', { className: 'field-label' }, `Student CEFR Level (${CEFR_LABELS[activeLevel] || activeLevel})`),
         el(
           'div',
           { className: 'row-wrap' },
@@ -111,10 +114,31 @@ export function renderProfileView({ navigate }) {
               'button',
               {
                 type: 'button',
-                className: `chip ${p.learningLevel === lvl ? 'selected' : ''}`,
+                className: `chip ${activeLevel === lvl ? 'selected' : ''}`,
                 onClick: () => store.updateLearningLevel(lvl)
               },
-              lvl
+              CEFR_LABELS[lvl] || lvl
+            )
+          )
+        )
+      ),
+
+      el(
+        'div',
+        { className: 'stack-xs' },
+        el('div', { className: 'field-label' }, 'Active Quiz & Arcade Difficulty'),
+        el(
+          'div',
+          { className: 'row-wrap' },
+          ...DIFFICULTY_LEVELS.map((d) =>
+            el(
+              'button',
+              {
+                type: 'button',
+                className: `chip ${activeDiff === d ? 'selected' : ''}`,
+                onClick: () => store.setDifficulty(d)
+              },
+              DIFFICULTY_CONFIG[d].label
             )
           )
         )
@@ -130,8 +154,8 @@ export function renderProfileView({ navigate }) {
               className: 'btn btn-primary',
               onClick: async () => {
                 try {
-                  await store.signInWithGoogle();
-                  navigate('home');
+                  const user = await store.signInWithGoogle();
+                  if (user) navigate('home');
                 } catch (_) {}
               }
             }, '🔐 Sign in with Google')

@@ -1,6 +1,6 @@
 // Weekly 200-Word Club & Mini-Games View (1:1 port of WeeklyCurriculumScreen.kt + WeeklyGamesComponents.kt)
 
-import { VOCAB_DOMAIN_LABELS, VocabDomain, el, shuffleArray } from '../models.js';
+import { CEFR_LEVELS, VOCAB_DOMAIN_LABELS, VocabDomain, el, shuffleArray } from '../models.js';
 import { WEEKLY_CURRICULUM } from '../data/weekly-curriculum.js';
 import { ttsSpeaker } from '../services/speech-media.js';
 import { aiService } from '../services/ai-service.js';
@@ -11,6 +11,7 @@ let selectedWeek = 1;
 let selectedSession = 1;
 let viewMode = 'WORDS'; // 'WORDS' | 'STORY' | 'GAMES'
 let selectedDomain = 'ALL';
+let selectedWordCefr = 'ALL';
 let searchQuery = '';
 let weeklyGameState = null;
 
@@ -203,6 +204,7 @@ export function renderCurriculumView({ navigate }) {
   const sessionWords = week.words.filter((w) => w.sessionNumber === selectedSession);
   const filteredWords = sessionWords
     .filter((w) => (selectedDomain === 'ALL' ? true : w.domain === selectedDomain))
+    .filter((w) => (selectedWordCefr === 'ALL' ? true : (w.cefrLevel || 'B1') === selectedWordCefr))
     .filter((w) => {
       const q = searchQuery.trim().toLowerCase();
       if (!q) return true;
@@ -349,6 +351,7 @@ export function renderCurriculumView({ navigate }) {
           'div',
           { className: 'stack-md' },
           el('input', {
+            id: 'curriculum-search-input',
             type: 'search',
             className: 'field',
             placeholder: `Filter Session ${selectedSession} words (English or Arabic)...`,
@@ -358,6 +361,14 @@ export function renderCurriculumView({ navigate }) {
               store.emit('change');
             }
           }),
+          el(
+            'div',
+            { className: 'scroll-x' },
+            el('button', { type: 'button', className: `chip ${selectedWordCefr === 'ALL' ? 'selected' : ''}`, onClick: () => { selectedWordCefr = 'ALL'; store.emit('change'); } }, 'All Levels'),
+            ...CEFR_LEVELS.map((l) =>
+              el('button', { type: 'button', className: `chip ${selectedWordCefr === l ? 'selected' : ''}`, onClick: () => { selectedWordCefr = l; store.emit('change'); } }, l)
+            )
+          ),
           el(
             'div',
             { className: 'scroll-x' },

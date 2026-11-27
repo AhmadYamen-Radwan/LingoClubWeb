@@ -1,13 +1,16 @@
 // Home Dashboard View (1:1 port of HomeScreen.kt)
 
-import { el } from '../models.js';
+import { CEFR_LABELS, CEFR_LEVELS, DIFFICULTY_CONFIG, DIFFICULTY_LEVELS, el } from '../models.js';
 import { store } from '../store/app-store.js';
 import { createDailyGoalRingCanvas, createLanguageCubeCanvas } from '../components/canvas-3d.js';
 import { createCefrBadge, openAiKeyModal, renderCefrFilterRow } from '../components/ui-shared.js';
 
 export function renderHomeView({ navigate }) {
   const p = store.profile || {};
+  const activeLevel = p.learningLevel || 'B1';
+  const activeDiff = store.selectedDifficulty || 'MEDIUM';
   const pinInput = el('input', {
+    id: 'home-join-pin-input',
     type: 'text',
     className: 'field mono flex-1',
     placeholder: '6-char PIN (e.g. A7K9P2)',
@@ -18,9 +21,9 @@ export function renderHomeView({ navigate }) {
   const announcements = (store.clubContent || []).filter((c) => c.contentType === 'ANNOUNCEMENT');
 
   const modeTiles = [
-    { route: 'quiz', icon: '⚡', title: 'Live Quiz Clash', sub: 'Kahoot PIN rooms & Blitz', bg: 'var(--primary-soft)', ink: 'var(--on-primary-soft)', tag: 'LIVE' },
+    { route: 'quiz', icon: '⚡', title: 'Live Quiz Clash', sub: 'English & Arabic Quizzes, AI Free Prompt', bg: 'var(--primary-soft)', ink: 'var(--on-primary-soft)', tag: 'LIVE + AR' },
     { route: 'curriculum', icon: '📅', title: 'Weekly 200-Word Club', sub: 'Week 1 & 2 · 400 words', bg: 'var(--tertiary-soft)', ink: 'var(--on-tertiary-soft)', tag: 'CLUB' },
-    { route: 'arcade', icon: '🕵️', title: 'Interactive Arcade', sub: '8 Games & Crime Mystery', bg: 'var(--accent-soft)', ink: 'var(--on-accent-soft)', tag: '8 GAMES' },
+    { route: 'arcade', icon: '🕵️', title: 'Interactive Arcade', sub: '8 EN Games + 4 Arabic Games (ألعاب عربية)', bg: 'var(--accent-soft)', ink: 'var(--on-accent-soft)', tag: '12 GAMES' },
     { route: 'cards', icon: '🃏', title: 'Deck Studio', sub: '3D Flip & Custom Decks', bg: 'var(--secondary-soft)', ink: 'var(--on-secondary-soft)', tag: '3D' },
     { route: 'puzzles', icon: '🧩', title: 'Word Forge Puzzles', sub: 'Scramble, Match, Cloze', bg: 'var(--sky-soft)', ink: 'var(--on-sky-soft)', tag: 'BRAIN' },
     { route: 'roleplay', icon: '🎭', title: 'Roleplay Stage', sub: 'AI Scenes & Voice Coach', bg: 'var(--purple-soft)', ink: 'var(--on-purple-soft)', tag: 'VOICE' },
@@ -60,7 +63,8 @@ export function renderHomeView({ navigate }) {
           el(
             'div',
             { className: 'row-wrap', style: { gap: '6px' } },
-            createCefrBadge(p.learningLevel || 'B1'),
+            createCefrBadge(activeLevel),
+            el('span', { className: 'badge-pill card-soft-amber' }, DIFFICULTY_CONFIG[activeDiff]?.label || '🟡 Medium'),
             el('span', { className: 'badge-pill', style: { background: 'var(--surface-variant)' } }, store.isOfflineMode ? '🧭 Offline' : '☁️ Cloud')
           )
         )
@@ -170,12 +174,40 @@ export function renderHomeView({ navigate }) {
       )
     ),
 
-    // CEFR Filter
+    // Student Level, Difficulty & Content Filter
     el(
       'div',
-      { className: 'stack-xs' },
-      el('div', { className: 'small muted', style: { fontWeight: '700' } }, 'CEFR Level Filter (applies across Quizzes, Puzzles, Cards & Roleplays)'),
-      renderCefrFilterRow(store.selectedCefrFilter, (lvl) => store.setCefrFilter(lvl))
+      { className: 'card stack-sm' },
+      el('div', { className: 'row-between', style: { flexWrap: 'wrap' } },
+        el('div', { className: 'stack-xs' },
+          el('div', { className: 'small', style: { fontWeight: '700' } }, `My Student Level: ${CEFR_LABELS[activeLevel] || activeLevel}`),
+          el('div', { className: 'row-wrap' },
+            ...CEFR_LEVELS.map((lvl) =>
+              el('button', {
+                type: 'button',
+                className: `chip ${activeLevel === lvl ? 'selected' : ''}`,
+                onClick: () => store.updateLearningLevel(lvl)
+              }, CEFR_LABELS[lvl] || lvl)
+            )
+          )
+        ),
+        el('div', { className: 'stack-xs' },
+          el('div', { className: 'small', style: { fontWeight: '700' } }, 'Game & Quiz Difficulty'),
+          el('div', { className: 'row-wrap' },
+            ...DIFFICULTY_LEVELS.map((d) =>
+              el('button', {
+                type: 'button',
+                className: `chip ${activeDiff === d ? 'selected' : ''}`,
+                onClick: () => store.setDifficulty(d)
+              }, DIFFICULTY_CONFIG[d].label)
+            )
+          )
+        )
+      ),
+      el('div', { className: 'stack-xs' },
+        el('div', { className: 'xs muted', style: { fontWeight: '700' } }, 'Content Level Filter (Quizzes, Puzzles, Cards & Roleplays)'),
+        renderCefrFilterRow(store.selectedCefrFilter, (lvl) => store.setCefrFilter(lvl))
+      )
     ),
 
     // 12 Tactile Mode Tiles

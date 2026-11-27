@@ -1,16 +1,20 @@
-// Quiz Arena View — Live Kahoot PIN Rooms, Solo Blitz, AI Generator & Custom Builder
-// (1:1 port of QuizArenaScreen.kt)
+// Quiz Arena View — Live Kahoot PIN Rooms, Solo Blitz, AI Generator (w/ Free Prompt & 3-60 Qs),
+// Student Difficulty & Bilingual English + Arabic Quiz Packs
 
 import {
   ActivityType,
+  CEFR_LABELS,
   CEFR_LEVELS,
+  DIFFICULTY_CONFIG,
+  DIFFICULTY_LEVELS,
   RoomStatus,
   avatarColorForTag,
+  clearEl,
   computeQuizPointsEarned,
   el,
   prepareDynamicQuizQuestions
 } from '../models.js';
-import { QUIZ_PACKS } from '../data/curated-content.js';
+import { ARABIC_QUIZ_PACKS, QUIZ_PACKS } from '../data/curated-content.js';
 import { aiService } from '../services/ai-service.js';
 import { store } from '../store/app-store.js';
 import { createCefrBadge, openModal, closeModal } from '../components/ui-shared.js';
@@ -19,8 +23,19 @@ import { createTrophyCanvas } from '../components/canvas-3d.js';
 const KAHOOT_SHAPES = ['▲', '◆', '●', '■'];
 const AVATAR_TAGS = ['INDIGO', 'CORAL', 'AMBER', 'MINT'];
 
-let soloState = null; // { title, cefrLevel, questions, index, score, streak, bestStreak, correctCount, selectedIdx, timeLeft, timerId, finished }
+let soloState = null; // { title, cefrLevel, difficulty, questions, index, score, streak, bestStreak, correctCount, selectedIdx, timeLeft, timerId, finished }
 let roomTimerId = null;
+let quizLanguageFilter = 'ALL'; // 'ALL' | 'EN' | 'AR'
+let roomChatDraft = '';
+
+function isArabicText(str) {
+  return /[\u0600-\u06FF]/.test(String(str || ''));
+}
+
+export function stopQuizTimers() {
+  stopSoloTimer();
+  stopRoomTimer();
+}
 
 function stopSoloTimer() {
   if (soloState?.timerId) {
@@ -36,16 +51,31 @@ function stopRoomTimer() {
   }
 }
 
-function startSoloBlitz({ title, cefrLevel, questions }) {
+function resolveQuestionLimitSec(q, difficultyId) {
+  const diffCfg = DIFFICULTY_CONFIG[difficultyId] || store.difficultyConfig || DIFFICULTY_CONFIG.MEDIUM;
+  if (q && Number(q.timeLimitSec) > 0 && q.timeLimitSec !== 20) {
+    // Respect custom time limits when adjusted, otherwise use active difficulty preset
+    if (difficultyId === 'HARD') return Math.max(8, Math.min(Number(q.timeLimitSec), diffCfg.timeLimitSec));
+    if (difficultyId === 'EASY') return Math.max(Number(q.timeLimitSec), diffCfg.timeLimitSec);
+  }
+  return diffCfg.timeLimitSec;
+}
+
+function startSoloBlitz({ title, cefrLevel, questions, difficulty }) {
   stopSoloTimer();
-  const prepared = prepareDynamicQuizQuestions(questions).slice(0, 60);
+  const activeDiff = difficulty || store.selectedDifficulty || 'MEDIUM';
+  const prepared = prepareDynamicQuizQuestions(questions).slice(0, 60).map((q) => ({
+    ...q,
+    timeLimitSec: resolveQuestionLimitSec(q, activeDiff)
+  }));
   if (!prepared.length) {
     store.toast('This quiz has no questions yet.', 'error');
     return;
   }
   soloState = {
     title,
-    cefrLevel: cefrLevel || 'B1',
+    cefrLevel: cefrLevel || store.profile?.learningLevel || 'B1',
+    difficulty: activeDiff,
     questions: prepared,
     index: 0,
     score: 0,
@@ -54,24 +84,34 @@ function startSoloBlitz({ title, cefrLevel, questions }) {
     correctCount: 0,
     selectedIdx: null,
     timeLeft: Number(prepared[0].timeLimitSec || 20),
+    questionDeadlineMs: Date.now() + Number(prepared[0].timeLimitSec || 20) * 1000,
     timerId: null,
     finished: false
   };
 
   const startQuestionTimer = () => {
     stopSoloTimer();
+    const total = Number(soloState.questions[soloState.index]?.timeLimitSec || 20);
+    soloState.timeLeft = total;
+    soloState.questionDeadlineMs = Date.now() + total * 1000;
     soloState.timerId = setInterval(() => {
       if (!soloState || soloState.finished || soloState.selectedIdx !== null) return;
-      soloState.timeLeft = Math.max(0, soloState.timeLeft - 1);
-      const timerEl = document.getElementById('solo-timer-pill');
-      if (timerEl) timerEl.textContent = `⏱ ${soloState.timeLeft}s`;
-      if (soloState.timeLeft <= 0) {
+      const remaining = Math.max(0, Math.ceil((soloState.questionDeadlineMs - Date.now()) / 1000));
+      if (remaining !== soloState.timeLeft) {
+        soloState.timeLeft = remaining;
+        const timerEl = document.getElementById('solo-timer-pill');
+        if (timerEl) {
+          timerEl.textContent = remaining > 0 ? `⏱ ${remaining}s` : '⏱ Time Up!';
+          timerEl.className = `badge-pill mono ${remaining <= 5 ? 'card-soft-secondary' : 'card-soft-amber'}`;
+        }
+      }
+      if (remaining <= 0) {
         soloState.selectedIdx = -1; // Timed out
         soloState.streak = 0;
         stopSoloTimer();
         store.emit('change');
       }
-    }, 1000);
+    }, 250);
   };
 
   soloState.startQuestionTimer = startQuestionTimer;
@@ -81,14 +121,14 @@ function startSoloBlitz({ title, cefrLevel, questions }) {
 
 const AI_TOPIC_PRESETS = [
   'General Knowledge & Facts',
+  'Arabic Grammar & Nahw (قواعد ونحو)',
+  'Arabic Vocabulary & Proverbs (مفردات وأمثال)',
   'Science & Space',
   'World History & Geography',
   'Technology & AI',
   'Animals & Nature',
   'Sports & Pop Culture',
   'Everyday Conversations',
-  'Travel & Airports',
-  'Business & Job Interviews',
   'English Grammar & Idioms',
   'Arabic–English Vocabulary'
 ];
@@ -97,20 +137,34 @@ function openAiQuizGeneratorModal() {
   const topicInput = el('input', {
     type: 'text',
     className: 'field',
-    placeholder: 'Type ANY topic (e.g. General Facts, Football, Space, Cooking...)',
-    value: 'General Knowledge & Facts'
+    placeholder: 'Type ANY topic (e.g. General Facts, Football, قوافي عربية, Space...)',
+    value: quizLanguageFilter === 'AR' ? 'Arabic Vocabulary & Proverbs (مفردات وأمثال)' : 'General Knowledge & Facts'
+  });
+  const freePromptInput = el('textarea', {
+    id: 'ai-quiz-free-prompt',
+    className: 'field',
+    rows: 3,
+    placeholder: 'Optional free prompt: e.g. "Focus on tricky real-world examples, add hints in Arabic, or ask about 1990s World Cup facts..."'
   });
   const levelSelect = el(
     'select',
     { className: 'field' },
-    ...CEFR_LEVELS.map((l) => el('option', { value: l, selected: l === (store.profile?.learningLevel || 'B1') }, l))
+    ...CEFR_LEVELS.map((l) => el('option', { value: l, selected: l === (store.profile?.learningLevel || 'B1') }, CEFR_LABELS[l] || l))
+  );
+  const diffSelect = el(
+    'select',
+    { className: 'field' },
+    ...DIFFICULTY_LEVELS.map((d) =>
+      el('option', { value: d, selected: d === (store.selectedDifficulty || 'MEDIUM') }, `${DIFFICULTY_CONFIG[d].label} (${DIFFICULTY_CONFIG[d].timeLimitSec}s/Q)`)
+    )
   );
   const modeSelect = el(
     'select',
     { className: 'field' },
-    el('option', { value: 'AUTO', selected: true }, 'Auto (Match Topic)'),
+    el('option', { value: 'AUTO', selected: quizLanguageFilter !== 'AR' }, 'Auto (Match Topic & Prompt)'),
     el('option', { value: 'GENERAL' }, 'General Facts & Trivia'),
-    el('option', { value: 'VOCAB' }, 'English & Arabic Vocab')
+    el('option', { value: 'VOCAB' }, 'English & Arabic Vocab'),
+    el('option', { value: 'ARABIC', selected: quizLanguageFilter === 'AR' }, '🇸🇦 Arabic Language (العربية)')
   );
   const countInput = el('input', {
     type: 'number',
@@ -157,10 +211,13 @@ function openAiQuizGeneratorModal() {
       'button',
       {
         type: 'button',
-        className: `chip ${preset === 'General Knowledge & Facts' ? 'selected' : ''}`,
+        className: `chip ${preset === topicInput.value ? 'selected' : ''}`,
         dataset: { topic: preset },
         onClick: () => {
           topicInput.value = preset;
+          if (preset.toLowerCase().includes('arabic') && preset.includes('(')) {
+            modeSelect.value = 'ARABIC';
+          }
           syncTopicChips();
         }
       },
@@ -187,6 +244,8 @@ function openAiQuizGeneratorModal() {
           const draft = await aiService.generateQuizDraft({
             topic: topicInput.value.trim() || 'General Knowledge & Facts',
             cefrLevel: levelSelect.value,
+            difficulty: diffSelect.value,
+            customPrompt: freePromptInput.value.trim(),
             questionCount: requestedCount,
             quizMode: modeSelect.value,
             onProgress: (msg) => {
@@ -195,7 +254,7 @@ function openAiQuizGeneratorModal() {
           });
           await store.saveCustomQuiz(draft);
           closeModal();
-          startSoloBlitz(draft);
+          startSoloBlitz({ ...draft, difficulty: diffSelect.value });
         } catch (err) {
           statusEl.textContent = err?.message || 'Could not generate quiz.';
         } finally {
@@ -209,7 +268,7 @@ function openAiQuizGeneratorModal() {
 
   openModal({
     title: '✨ AI Quiz Generator',
-    subtitle: 'Pick any topic (general facts, science, history, English) and generate 3 to 60 questions',
+    subtitle: 'Pick a topic, add your own free prompt instructions, choose English or Arabic, and generate 3–60 questions',
     content: el(
       'div',
       { className: 'stack-md' },
@@ -223,6 +282,12 @@ function openAiQuizGeneratorModal() {
       el(
         'div',
         { className: 'stack-xs' },
+        el('label', { className: 'field-label', htmlFor: 'ai-quiz-free-prompt' }, 'Custom Free Prompt / Instructions (Optional)'),
+        freePromptInput
+      ),
+      el(
+        'div',
+        { className: 'stack-xs' },
         el('label', { className: 'field-label' }, 'Number of Questions (up to 60)'),
         el('div', { className: 'row-wrap' }, ...countChips),
         countInput
@@ -230,9 +295,10 @@ function openAiQuizGeneratorModal() {
       el(
         'div',
         { className: 'grid-2' },
-        el('div', { className: 'stack-xs' }, el('label', { className: 'field-label' }, 'CEFR Level'), levelSelect),
-        el('div', { className: 'stack-xs' }, el('label', { className: 'field-label' }, 'Quiz Style'), modeSelect)
+        el('div', { className: 'stack-xs' }, el('label', { className: 'field-label' }, 'Student Level (CEFR)'), levelSelect),
+        el('div', { className: 'stack-xs' }, el('label', { className: 'field-label' }, 'Difficulty & Timer'), diffSelect)
       ),
+      el('div', { className: 'stack-xs' }, el('label', { className: 'field-label' }, 'Language / Quiz Style'), modeSelect),
       statusEl,
       genBtn
     )
@@ -240,13 +306,12 @@ function openAiQuizGeneratorModal() {
 }
 
 function openCreateCustomQuizModal() {
-  const titleInput = el('input', { type: 'text', className: 'field', placeholder: 'e.g., World Trivia or Phrasal Verbs' });
-  const topicInput = el('input', { type: 'text', className: 'field', placeholder: 'Topic (e.g., Science, Verbs)' });
-  const levelSelect = el('select', { className: 'field' }, ...CEFR_LEVELS.map((l) => el('option', { value: l, selected: l === 'B1' }, l)));
+  const titleInput = el('input', { type: 'text', className: 'field', placeholder: 'e.g., World Trivia or مسابقة عربية' });
+  const topicInput = el('input', { type: 'text', className: 'field', placeholder: 'Topic (e.g., Science, نحو عربي)' });
+  const levelSelect = el('select', { className: 'field' }, ...CEFR_LEVELS.map((l) => el('option', { value: l, selected: l === (store.profile?.learningLevel || 'B1') }, CEFR_LABELS[l] || l)));
+  const langSelect = el('select', { className: 'field' }, el('option', { value: 'EN' }, '🇬🇧 English'), el('option', { value: 'AR' }, '🇸🇦 Arabic (العربية)'));
 
-  const questions = [
-    { prompt: '', options: ['', '', '', ''], correctIndex: 0, tip: '' }
-  ];
+  const questions = [{ prompt: '', options: ['', '', '', ''], correctIndex: 0, tip: '' }];
   const listContainer = el('div', { className: 'stack-md' });
 
   const renderQuestionsEditor = () => {
@@ -314,6 +379,7 @@ function openCreateCustomQuizModal() {
       { className: 'stack-md' },
       titleInput,
       el('div', { className: 'grid-2' }, topicInput, levelSelect),
+      el('div', { className: 'stack-xs' }, el('label', { className: 'field-label' }, 'Language'), langSelect),
       listContainer,
       el(
         'div',
@@ -339,12 +405,13 @@ function openCreateCustomQuizModal() {
             onClick: async () => {
               const title = titleInput.value.trim();
               if (!title) return store.toast('Enter a quiz title.', 'error');
+              const diffSec = store.difficultyConfig?.timeLimitSec || 20;
               const validQs = questions
                 .map((q) => ({
                   prompt: q.prompt.trim(),
                   options: q.options.map((o) => o.trim()),
                   correctIndex: q.correctIndex,
-                  timeLimitSec: 20,
+                  timeLimitSec: diffSec,
                   tip: q.tip.trim()
                 }))
                 .filter((q) => q.prompt && q.options.every(Boolean));
@@ -353,6 +420,7 @@ function openCreateCustomQuizModal() {
                 title,
                 topic: topicInput.value.trim() || 'Custom',
                 cefrLevel: levelSelect.value,
+                language: langSelect.value,
                 questions: validQs
               });
               closeModal();
@@ -368,6 +436,7 @@ function openCreateCustomQuizModal() {
 function renderSoloBlitzView() {
   const s = soloState;
   const q = s.questions[s.index];
+  const diffCfg = DIFFICULTY_CONFIG[s.difficulty] || store.difficultyConfig;
 
   if (s.finished) {
     const acc = Math.round((s.correctCount / s.questions.length) * 100);
@@ -376,7 +445,7 @@ function renderSoloBlitzView() {
       { className: 'card stack-md', style: { textAlign: 'center', padding: '26px' } },
       el('div', { style: { display: 'flex', justifyContent: 'center' } }, createTrophyCanvas({ size: 100 })),
       el('h2', { className: 'display-title' }, 'Blitz Complete!'),
-      el('p', { className: 'small muted', style: { margin: 0 } }, s.title),
+      el('p', { className: 'small muted', style: { margin: 0 } }, `${s.title} · ${diffCfg.label}`),
       el(
         'div',
         { className: 'grid-stats' },
@@ -388,12 +457,13 @@ function renderSoloBlitzView() {
         'div',
         { className: 'row-between' },
         el('button', { type: 'button', className: 'btn btn-outline', onClick: () => { soloState = null; store.emit('change'); } }, 'Back to Quizzes'),
-        el('button', { type: 'button', className: 'btn btn-primary', onClick: () => startSoloBlitz({ title: s.title, cefrLevel: s.cefrLevel, questions: s.questions }) }, 'Play Again')
+        el('button', { type: 'button', className: 'btn btn-primary', onClick: () => startSoloBlitz({ title: s.title, cefrLevel: s.cefrLevel, questions: s.questions, difficulty: s.difficulty }) }, 'Play Again')
       )
     );
   }
 
   const answered = s.selectedIdx !== null;
+  const rtlQuestion = isArabicText(q.prompt);
   const advanceNext = async () => {
     if (s.index + 1 >= s.questions.length) {
       stopSoloTimer();
@@ -401,7 +471,7 @@ function renderSoloBlitzView() {
       const acc = Math.round((s.correctCount / s.questions.length) * 100);
       store.confetti();
       await store.awardActivityProgress({
-        xpDelta: Math.max(20, Math.round(s.score / 30)),
+        xpDelta: Math.round(Math.max(20, Math.round(s.score / 30)) * (diffCfg.xpMultiplier || 1)),
         activityType: ActivityType.QUIZ,
         title: s.title,
         cefrLevel: s.cefrLevel,
@@ -419,7 +489,6 @@ function renderSoloBlitzView() {
     }
     s.index += 1;
     s.selectedIdx = null;
-    s.timeLeft = Number(s.questions[s.index].timeLimitSec || 20);
     s.startQuestionTimer();
     store.emit('change');
   };
@@ -432,13 +501,13 @@ function renderSoloBlitzView() {
       { className: 'row-between' },
       el('button', { type: 'button', className: 'btn btn-outline', onClick: () => { stopSoloTimer(); soloState = null; store.emit('change'); } }, '✕ Exit Blitz'),
       el('span', { className: 'badge-pill card-soft-primary mono' }, `Q ${s.index + 1}/${s.questions.length}`),
-      el('span', { id: 'solo-timer-pill', className: 'badge-pill card-soft-amber mono' }, `⏱ ${s.timeLeft}s`)
+      el('span', { id: 'solo-timer-pill', className: `badge-pill mono ${s.timeLeft <= 5 ? 'card-soft-secondary' : 'card-soft-amber'}` }, s.timeLeft > 0 ? `⏱ ${s.timeLeft}s` : '⏱ Time Up!')
     ),
 
     el(
       'div',
       { className: 'row-between small' },
-      el('span', { className: 'mono', style: { fontWeight: '800' } }, `Score: ${s.score}`),
+      el('span', { className: 'mono', style: { fontWeight: '800' } }, `Score: ${s.score} · ${diffCfg.short}`),
       el('span', { className: 'mono', style: { fontWeight: '800' } }, `🔥 Streak: ${s.streak}x`)
     ),
 
@@ -446,7 +515,7 @@ function renderSoloBlitzView() {
       'div',
       { className: 'card stack-sm' },
       el('div', { className: 'row-between' }, el('span', { className: 'small muted' }, s.title), createCefrBadge(s.cefrLevel)),
-      el('h2', { className: 'section-title' }, q.prompt)
+      el('h2', { className: `section-title ${rtlQuestion ? 'arabic-text' : ''}`, dir: rtlQuestion ? 'rtl' : 'ltr' }, q.prompt)
     ),
 
     el(
@@ -455,10 +524,10 @@ function renderSoloBlitzView() {
       ...(q.options || []).map((opt, idx) => {
         const isCorrect = idx === Number(q.correctIndex);
         const isSelected = idx === s.selectedIdx;
+        const rtlOpt = isArabicText(opt);
         let extra = '';
         if (answered) {
-          if (isCorrect) extra = 'selected-ring';
-          else extra = 'dimmed';
+          extra = isCorrect ? 'selected-ring' : 'dimmed';
         }
         return el(
           'button',
@@ -472,7 +541,8 @@ function renderSoloBlitzView() {
               s.selectedIdx = idx;
               const ok = idx === Number(q.correctIndex);
               if (ok) {
-                const pts = computeQuizPointsEarned(true, s.timeLeft, Number(q.timeLimitSec || 20), s.streak);
+                const basePts = computeQuizPointsEarned(true, s.timeLeft, Number(q.timeLimitSec || 20), s.streak);
+                const pts = Math.round(basePts * (diffCfg.xpMultiplier || 1));
                 s.score += pts;
                 s.streak += 1;
                 s.bestStreak = Math.max(s.bestStreak, s.streak);
@@ -485,7 +555,7 @@ function renderSoloBlitzView() {
             }
           },
           el('span', { style: { fontSize: '1.2rem' } }, KAHOOT_SHAPES[idx % 4]),
-          el('span', { className: 'flex-1' }, opt),
+          el('span', { className: `flex-1 ${rtlOpt ? 'arabic-text' : ''}`, dir: rtlOpt ? 'rtl' : 'ltr', style: rtlOpt ? { textAlign: 'right' } : {} }, opt),
           answered && isCorrect ? el('span', {}, '✓') : answered && isSelected ? el('span', {}, '✕') : null
         );
       })
@@ -496,79 +566,40 @@ function renderSoloBlitzView() {
           'div',
           { className: `card stack-sm ${s.selectedIdx === Number(q.correctIndex) ? 'card-soft-mint' : 'card-soft-secondary'}` },
           el('div', { className: 'card-title' }, s.selectedIdx === Number(q.correctIndex) ? '🎉 Correct!' : s.selectedIdx === -1 ? '⏱ Time Up!' : '💡 Not quite!'),
-          q.tip ? el('p', { className: 'small', style: { margin: 0 } }, q.tip) : null,
+          q.tip ? el('p', { className: `small ${isArabicText(q.tip) ? 'arabic-text' : ''}`, dir: isArabicText(q.tip) ? 'rtl' : 'ltr', style: { margin: 0 } }, q.tip) : null,
           el('button', { type: 'button', className: 'btn btn-primary btn-full', onClick: advanceNext }, s.index + 1 >= s.questions.length ? 'See Final Score →' : 'Next Question →')
         )
       : null
   );
 }
 
-function renderLiveRoomView() {
-  const s = store.roomSession;
-  const room = s.room;
-  if (!room) {
-    return el(
-      'div',
-      { className: 'card stack-md' },
-      el('h2', { className: 'section-title' }, `Connecting to Room ${s.roomCode}...`),
-      el('button', { type: 'button', className: 'btn btn-outline', onClick: () => { stopRoomTimer(); store.leaveLiveRoom(); } }, 'Leave Room')
-    );
-  }
-
+function buildLiveRoomStageNode(s, room) {
   const qIdx = Number(room.currentQuestionIndex || 0);
   const questions = room.questions || [];
   const q = questions[qIdx];
   const players = s.players || [];
-  const msgInput = el('input', { type: 'text', className: 'field flex-1', placeholder: 'Send cheer or chat...' });
 
-  // Live question countdown updater
   stopRoomTimer();
+  let initialLeftSec = Number(q?.timeLimitSec || 20);
   if (room.status === RoomStatus.QUESTION && q) {
+    initialLeftSec = store.getLiveRoomTimeRemaining(room, q).leftSec;
     const updateTick = () => {
       const pill = document.getElementById('live-room-timer');
       if (!pill) return;
-      const elapsed = (Date.now() - Number(room.questionStartedAtMs || Date.now())) / 1000;
-      const left = Math.max(0, Math.ceil(Number(q.timeLimitSec || 20) - elapsed));
-      pill.textContent = `⏱ ${left}s`;
+      const { leftSec } = store.getLiveRoomTimeRemaining(room, q);
+      pill.textContent = leftSec > 0 ? `⏱ ${leftSec}s` : '⏱ Time Up!';
+      pill.className = `badge-pill mono ${leftSec <= 5 ? 'card-soft-secondary' : 'card-soft-amber'}`;
+      if (leftSec <= 0) {
+        stopRoomTimer();
+        document.querySelectorAll('#live-room-stage .kahoot-tile').forEach((btn) => {
+          btn.disabled = true;
+        });
+      }
     };
-    roomTimerId = setInterval(updateTick, 500);
+    if (initialLeftSec > 0) {
+      roomTimerId = setInterval(updateTick, 250);
+    }
   }
-
-  const chatBox = el(
-    'div',
-    { className: 'card stack-sm' },
-    el('div', { className: 'row-between' }, el('strong', {}, '💬 Room Cheers & Chat'), el('span', { className: 'xs muted' }, `${(s.roomMessages || []).length} messages`)),
-    el(
-      'div',
-      { className: 'scroll-x' },
-      ...['🔥 Let’s go!', '👏 Nice!', '⚡ Fast!', '🤔 Tough one!'].map((rx) =>
-        el('button', { type: 'button', className: 'chip', onClick: () => store.sendLiveRoomMessage(rx, 'REACTION') }, rx)
-      )
-    ),
-    (s.roomMessages || []).length
-      ? el(
-          'div',
-          { className: 'stack-xs', style: { maxHeight: '140px', overflowY: 'auto' } },
-          ...(s.roomMessages || []).slice(-8).map((m) =>
-            el('div', { className: 'small' }, el('strong', {}, `${m.senderName}: `), m.text)
-          )
-        )
-      : null,
-    el(
-      'form',
-      {
-        className: 'row',
-        onSubmit: (e) => {
-          e.preventDefault();
-          if (!msgInput.value.trim()) return;
-          store.sendLiveRoomMessage(msgInput.value, 'TEXT');
-          msgInput.value = '';
-        }
-      },
-      msgInput,
-      el('button', { type: 'submit', className: 'btn btn-soft' }, 'Send')
-    )
-  );
 
   return el(
     'div',
@@ -595,7 +626,6 @@ function renderLiveRoomView() {
       )
     ),
 
-    // LOBBY
     room.status === RoomStatus.LOBBY
       ? el(
           'div',
@@ -617,7 +647,6 @@ function renderLiveRoomView() {
         )
       : null,
 
-    // QUESTION or REVEAL
     (room.status === RoomStatus.QUESTION || room.status === RoomStatus.REVEAL) && q
       ? el(
           'div',
@@ -627,17 +656,19 @@ function renderLiveRoomView() {
             { className: 'row-between' },
             el('span', { className: 'badge-pill card-soft-primary mono' }, `Question ${qIdx + 1} / ${questions.length}`),
             room.status === RoomStatus.QUESTION
-              ? el('span', { id: 'live-room-timer', className: 'badge-pill card-soft-amber mono' }, `⏱ ${q.timeLimitSec || 20}s`)
+              ? el('span', { id: 'live-room-timer', className: `badge-pill mono ${initialLeftSec <= 5 ? 'card-soft-secondary' : 'card-soft-amber'}` }, initialLeftSec > 0 ? `⏱ ${initialLeftSec}s` : '⏱ Time Up!')
               : el('span', { className: 'badge-pill card-soft-mint' }, 'Answer Revealed')
           ),
-          el('div', { className: 'card' }, el('h2', { className: 'section-title' }, q.prompt)),
+          el('div', { className: 'card' }, el('h2', { className: `section-title ${isArabicText(q.prompt) ? 'arabic-text' : ''}`, dir: isArabicText(q.prompt) ? 'rtl' : 'ltr' }, q.prompt)),
           el(
             'div',
             { className: 'kahoot-grid' },
             ...(q.options || []).map((opt, idx) => {
               const already = s.answeredQuestionIndex === qIdx;
               const isReveal = room.status === RoomStatus.REVEAL;
+              const timedOut = room.status === RoomStatus.QUESTION && initialLeftSec <= 0;
               const isCorrect = idx === Number(q.correctIndex);
+              const rtlOpt = isArabicText(opt);
               let cls = '';
               if (isReveal) cls = isCorrect ? 'selected-ring' : 'dimmed';
               else if (already) cls = s.selectedOptionIndex === idx ? 'selected-ring' : 'dimmed';
@@ -646,17 +677,17 @@ function renderLiveRoomView() {
                 {
                   type: 'button',
                   className: `kahoot-tile c-${idx % 4} ${cls}`,
-                  disabled: already || isReveal,
+                  disabled: already || isReveal || timedOut,
                   onClick: () => store.submitLiveAnswer(idx)
                 },
                 el('span', {}, KAHOOT_SHAPES[idx % 4]),
-                el('span', { className: 'flex-1' }, opt),
+                el('span', { className: `flex-1 ${rtlOpt ? 'arabic-text' : ''}`, dir: rtlOpt ? 'rtl' : 'ltr', style: rtlOpt ? { textAlign: 'right' } : {} }, opt),
                 isReveal && isCorrect ? el('span', {}, '✓') : null
               );
             })
           ),
           room.status === RoomStatus.REVEAL && q.tip
-            ? el('div', { className: 'card card-soft-mint small' }, `💡 ${q.tip}`)
+            ? el('div', { className: `card card-soft-mint small ${isArabicText(q.tip) ? 'arabic-text' : ''}`, dir: isArabicText(q.tip) ? 'rtl' : 'ltr' }, `💡 ${q.tip}`)
             : null,
           s.isHost
             ? el(
@@ -681,7 +712,6 @@ function renderLiveRoomView() {
         )
       : null,
 
-    // PODIUM
     room.status === RoomStatus.PODIUM
       ? el(
           'div',
@@ -701,8 +731,110 @@ function renderLiveRoomView() {
             )
           )
         )
-      : null,
+      : null
+  );
+}
 
+function buildLiveRoomMessagesNodes(roomMessages) {
+  return (roomMessages || []).slice(-10).map((m) =>
+    el('div', { className: `small ${isArabicText(m.text) ? 'arabic-text' : ''}` }, el('strong', {}, `${m.senderName}: `), m.text)
+  );
+}
+
+export function patchQuizArenaLiveRoom() {
+  const shell = document.getElementById('live-room-shell');
+  if (!shell || !store.roomSession?.room) return false;
+  const s = store.roomSession;
+  const stage = document.getElementById('live-room-stage');
+  if (stage) {
+    clearEl(stage);
+    stage.appendChild(buildLiveRoomStageNode(s, s.room));
+  }
+  const msgCount = document.getElementById('live-room-chat-count');
+  if (msgCount) {
+    msgCount.textContent = `${(s.roomMessages || []).length} messages`;
+  }
+  const msgList = document.getElementById('live-room-chat-list');
+  if (msgList) {
+    clearEl(msgList);
+    buildLiveRoomMessagesNodes(s.roomMessages).forEach((n) => msgList.appendChild(n));
+    msgList.scrollTop = msgList.scrollHeight;
+  }
+  const input = document.getElementById('live-room-chat-input');
+  if (input && input.value !== roomChatDraft) {
+    input.value = roomChatDraft;
+  }
+  return true;
+}
+
+function renderLiveRoomView() {
+  const s = store.roomSession;
+  const room = s.room;
+  if (!room) {
+    return el(
+      'div',
+      { className: 'card stack-md' },
+      el('h2', { className: 'section-title' }, `Connecting to Room ${s.roomCode}...`),
+      el('button', { type: 'button', className: 'btn btn-outline', onClick: () => { stopRoomTimer(); store.leaveLiveRoom(); } }, 'Leave Room')
+    );
+  }
+
+  const msgInput = el('input', {
+    id: 'live-room-chat-input',
+    type: 'text',
+    className: 'field flex-1',
+    placeholder: 'Send cheer or chat...',
+    value: roomChatDraft,
+    autocomplete: 'off',
+    onInput: (e) => {
+      roomChatDraft = e.target.value;
+    }
+  });
+
+  const sendRoomChat = () => {
+    const val = (msgInput.value || '').trim();
+    if (!val) return;
+    msgInput.value = '';
+    roomChatDraft = '';
+    store.sendLiveRoomMessage(val, 'TEXT');
+    msgInput.focus({ preventScroll: true });
+  };
+
+  const chatBox = el(
+    'div',
+    { className: 'card stack-sm' },
+    el('div', { className: 'row-between' }, el('strong', {}, '💬 Room Cheers & Chat'), el('span', { id: 'live-room-chat-count', className: 'xs muted' }, `${(s.roomMessages || []).length} messages`)),
+    el(
+      'div',
+      { className: 'scroll-x' },
+      ...['🔥 Let’s go!', '👏 Nice!', '⚡ Fast!', '🤔 سؤال رائع!'].map((rx) =>
+        el('button', { type: 'button', className: 'chip', onClick: () => store.sendLiveRoomMessage(rx, 'REACTION') }, rx)
+      )
+    ),
+    el(
+      'div',
+      { id: 'live-room-chat-list', className: 'stack-xs', style: { maxHeight: '140px', overflowY: 'auto' } },
+      ...buildLiveRoomMessagesNodes(s.roomMessages)
+    ),
+    el(
+      'form',
+      {
+        id: 'live-room-chat-form',
+        className: 'row',
+        onSubmit: (e) => {
+          e.preventDefault();
+          sendRoomChat();
+        }
+      },
+      msgInput,
+      el('button', { type: 'submit', className: 'btn btn-soft', onMouseDown: (e) => e.preventDefault() }, 'Send')
+    )
+  );
+
+  return el(
+    'div',
+    { id: 'live-room-shell', className: 'stack-md' },
+    el('div', { id: 'live-room-stage' }, buildLiveRoomStageNode(s, room)),
     chatBox
   );
 }
@@ -727,25 +859,36 @@ export function renderQuizArenaView({ navigate }) {
   }
 
   const cefrFilter = store.selectedCefrFilter;
+  const activeDiff = store.selectedDifficulty || 'MEDIUM';
   const pinInput = el('input', { type: 'text', className: 'field mono flex-1', placeholder: 'Room PIN (e.g. X9K2M4)', maxLength: 6, style: { textTransform: 'uppercase' } });
   const nickInput = el('input', { type: 'text', className: 'field flex-1', placeholder: 'Nickname', value: store.currentUserName, maxLength: 24 });
   let selectedAvatar = 'INDIGO';
 
-  const clubQuizzes = (store.clubContent || []).filter((c) => c.contentType === 'QUIZ' && (!cefrFilter || c.cefrLevel === cefrFilter));
-  const customQuizzes = (store.customQuizzes || []).filter((q) => !cefrFilter || q.cefrLevel === cefrFilter);
-  const curatedPacks = QUIZ_PACKS.filter((p) => !cefrFilter || p.cefrLevel === cefrFilter);
+  const matchesLang = (pack) => {
+    if (quizLanguageFilter === 'ALL') return true;
+    const isAr = pack.language === 'AR' || isArabicText(pack.title) || isArabicText(pack.questions?.[0]?.prompt);
+    return quizLanguageFilter === 'AR' ? isAr : !isAr;
+  };
 
-  const renderQuizPackCard = (pack, { isCustom = false, isClub = false } = {}) =>
-    el(
+  const clubQuizzes = (store.clubContent || []).filter((c) => c.contentType === 'QUIZ' && (!cefrFilter || c.cefrLevel === cefrFilter) && matchesLang(c));
+  const customQuizzes = (store.customQuizzes || []).filter((q) => (!cefrFilter || q.cefrLevel === cefrFilter) && matchesLang(q));
+  const englishPacks = QUIZ_PACKS.map((p) => ({ ...p, language: p.language || 'EN' })).filter((p) => (!cefrFilter || p.cefrLevel === cefrFilter) && matchesLang(p));
+  const arabicPacks = ARABIC_QUIZ_PACKS.filter((p) => (!cefrFilter || p.cefrLevel === cefrFilter) && matchesLang(p));
+
+  const renderQuizPackCard = (pack, { isCustom = false, isClub = false } = {}) => {
+    const isAr = pack.language === 'AR' || isArabicText(pack.title);
+    const diffSec = store.difficultyConfig?.timeLimitSec || 20;
+    const scaledQuestions = (pack.questions || []).map((q) => ({ ...q, timeLimitSec: resolveQuestionLimitSec(q, activeDiff) }));
+    return el(
       'div',
       { className: 'card stack-sm' },
       el(
         'div',
         { className: 'row-between' },
-        el('div', { className: 'card-title flex-1' }, pack.title),
-        createCefrBadge(pack.cefrLevel || 'B1')
+        el('div', { className: `card-title flex-1 ${isAr ? 'arabic-text' : ''}`, dir: isAr ? 'rtl' : 'ltr' }, pack.title),
+        el('div', { className: 'row', style: { gap: '4px' } }, isAr ? el('span', { className: 'badge-pill card-soft-amber' }, '🇸🇦 AR') : null, createCefrBadge(pack.cefrLevel || 'B1'))
       ),
-      el('p', { className: 'small muted', style: { margin: 0 } }, `${pack.topic || 'General'} · ${(pack.questions || []).length} questions${isClub ? ' · Official Club' : ''}`),
+      el('p', { className: 'small muted', style: { margin: 0 } }, `${pack.topic || 'General'} · ${scaledQuestions.length} Qs · ⏱ ${diffSec}s/Q${isClub ? ' · Official Club' : ''}`),
       el(
         'div',
         { className: 'row-wrap' },
@@ -754,7 +897,7 @@ export function renderQuizArenaView({ navigate }) {
           {
             type: 'button',
             className: 'btn btn-primary flex-1',
-            onClick: () => startSoloBlitz({ title: pack.title, cefrLevel: pack.cefrLevel, questions: pack.questions })
+            onClick: () => startSoloBlitz({ title: pack.title, cefrLevel: pack.cefrLevel, questions: scaledQuestions, difficulty: activeDiff })
           },
           '⚡ Solo Blitz'
         ),
@@ -768,7 +911,7 @@ export function renderQuizArenaView({ navigate }) {
                 await store.hostQuizRoom({
                   quizTitle: pack.title,
                   cefrLevel: pack.cefrLevel || 'B1',
-                  questions: pack.questions
+                  questions: scaledQuestions
                 });
               } catch (err) {
                 store.toast(err.message, 'error');
@@ -790,6 +933,7 @@ export function renderQuizArenaView({ navigate }) {
           : null
       )
     );
+  };
 
   return el(
     'div',
@@ -819,7 +963,43 @@ export function renderQuizArenaView({ navigate }) {
           'div',
           { style: { position: 'absolute', bottom: '12px', left: '16px', right: '16px' } },
           el('h2', { className: 'section-title', style: { color: '#FFFFFF' } }, 'Kahoot-Style Bilingual Clash'),
-          el('p', { className: 'small', style: { margin: 0, color: 'rgba(255,255,255,0.9)' } }, 'Speed bonus + combo streaks. Host live PIN rooms or race Solo Blitz!')
+          el('p', { className: 'small', style: { margin: 0, color: 'rgba(255,255,255,0.9)' } }, 'English & Arabic quizzes, AI free-prompt generation (3–60 Qs), live PIN rooms & Solo Blitz!')
+        )
+      )
+    ),
+
+    // Language Section Tabs & Difficulty Selector
+    el(
+      'div',
+      { className: 'card stack-sm' },
+      el(
+        'div',
+        { className: 'row-between', style: { flexWrap: 'wrap' } },
+        el(
+          'div',
+          { className: 'row-wrap' },
+          ...[
+            { id: 'ALL', label: '🌐 All Quizzes' },
+            { id: 'EN', label: '🇬🇧 English' },
+            { id: 'AR', label: '🇸🇦 Arabic (العربية)' }
+          ].map((tab) =>
+            el('button', {
+              type: 'button',
+              className: `chip ${quizLanguageFilter === tab.id ? 'selected' : ''}`,
+              onClick: () => { quizLanguageFilter = tab.id; store.emit('change'); }
+            }, tab.label)
+          )
+        ),
+        el(
+          'div',
+          { className: 'row-wrap' },
+          ...DIFFICULTY_LEVELS.map((d) =>
+            el('button', {
+              type: 'button',
+              className: `chip ${activeDiff === d ? 'selected' : ''}`,
+              onClick: () => store.setDifficulty(d)
+            }, DIFFICULTY_CONFIG[d].label)
+          )
         )
       )
     ),
@@ -837,8 +1017,8 @@ export function renderQuizArenaView({ navigate }) {
           'div',
           { className: 'row', style: { gap: '8px' } },
           el('span', { className: 'xs muted' }, 'Badge Color:'),
-          ...AVATAR_TAGS.map((tag) => {
-            const btn = el('button', {
+          ...AVATAR_TAGS.map((tag) =>
+            el('button', {
               type: 'button',
               'aria-label': `Select ${tag} color`,
               style: {
@@ -854,9 +1034,8 @@ export function renderQuizArenaView({ navigate }) {
                 [...e.currentTarget.parentElement.querySelectorAll('button')].forEach((b) => (b.style.border = '2px solid #FFFFFF'));
                 e.currentTarget.style.border = '3px solid var(--ink)';
               }
-            });
-            return btn;
-          })
+            })
+          )
         ),
         el(
           'button',
@@ -884,7 +1063,7 @@ export function renderQuizArenaView({ navigate }) {
     el(
       'div',
       { className: 'grid-2' },
-      el('button', { type: 'button', className: 'btn btn-soft btn-full', onClick: openAiQuizGeneratorModal }, '✨ Generate AI Quiz'),
+      el('button', { type: 'button', className: 'btn btn-soft btn-full', onClick: openAiQuizGeneratorModal }, '✨ Generate AI Quiz (Free Prompt)'),
       el('button', { type: 'button', className: 'btn btn-outline btn-full', onClick: openCreateCustomQuizModal }, '📝 Create Custom Quiz')
     ),
 
@@ -896,11 +1075,22 @@ export function renderQuizArenaView({ navigate }) {
       ? el('div', { className: 'stack-sm' }, el('h2', { className: 'section-title' }, '📁 My Custom Quizzes'), el('div', { className: 'grid-2' }, ...customQuizzes.map((q) => renderQuizPackCard(q, { isCustom: true }))))
       : null,
 
-    el(
-      'div',
-      { className: 'stack-sm' },
-      el('h2', { className: 'section-title' }, `📚 Curated Quiz Packs (${curatedPacks.length})`),
-      el('div', { className: 'grid-2' }, ...curatedPacks.map((p) => renderQuizPackCard(p)))
-    )
+    arabicPacks.length
+      ? el(
+          'div',
+          { className: 'stack-sm' },
+          el('h2', { className: 'section-title' }, `🇸🇦 مسابقة اللغة العربية — Arabic Quizzes (${arabicPacks.length})`),
+          el('div', { className: 'grid-2' }, ...arabicPacks.map((p) => renderQuizPackCard(p)))
+        )
+      : null,
+
+    englishPacks.length
+      ? el(
+          'div',
+          { className: 'stack-sm' },
+          el('h2', { className: 'section-title' }, `🇬🇧 English Quiz Packs (${englishPacks.length})`),
+          el('div', { className: 'grid-2' }, ...englishPacks.map((p) => renderQuizPackCard(p)))
+        )
+      : null
   );
 }
