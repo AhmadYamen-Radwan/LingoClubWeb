@@ -1,0 +1,5 @@
+# LingoClub web app: plain HTML/CSS/ES modules with no build step.
+# The repo root also holds the Android (Gradle) project, which Netlify doesn't build.
+[build]
+  publish = "web-app"
+  command = "echo 'No build step: publishing the static web-app folder'"

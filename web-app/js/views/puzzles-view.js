@@ -281,6 +281,7 @@ export function renderPuzzlesView({ navigate }) {
             el('button', { type: 'button', className: 'btn btn-primary', onClick: () => { clozeIdx += 1; clozePicked = null; store.emit('change'); } }, 'Next Gap-Fill →')
           )
         : null
+    );
   }
 
   return el(
