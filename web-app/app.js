@@ -7,12 +7,14 @@ import { ttsSpeaker } from './js/services/speech-media.js';
 import { audioService } from './js/services/audio-service.js';
 import { showToast } from './js/components/ui-shared.js';
 import { triggerConfettiBurst } from './js/components/canvas-3d.js';
+import { renderTeamBuzzerOverlay } from './js/components/team-buzzer.js';
 
 import { renderAuthView } from './js/views/auth-view.js';
 import { renderHomeView } from './js/views/home-view.js';
 import { patchQuizArenaLiveRoom, renderQuizArenaView, stopQuizTimers } from './js/views/quiz-arena-view.js';
 import { renderArcadeView, stopArcadeTimers } from './js/views/arcade-view.js';
 import { renderLeaderboardView } from './js/views/leaderboard-view.js';
+import { renderTeamsView } from './js/views/teams-view.js';
 import { renderCurriculumView } from './js/views/curriculum-view.js';
 import { renderAudiobooksView } from './js/views/audiobooks-view.js';
 import { patchTeamChatView, renderTeamChatView } from './js/views/team-chat-view.js';
@@ -30,6 +32,7 @@ const ROUTES = {
   quiz: renderQuizArenaView,
   arcade: renderArcadeView,
   leaderboard: renderLeaderboardView,
+  teams: renderTeamsView,
   curriculum: renderCurriculumView,
   audiobooks: renderAudiobooksView,
   chat: renderTeamChatView,
@@ -189,6 +192,7 @@ function renderApp() {
 
 // Subscribe to global store events
 store.addEventListener('change', () => renderApp());
+store.addEventListener('buzzer', () => renderTeamBuzzerOverlay());
 store.addEventListener('auth', () => {
   const isSignedIn = store.authMode === 'GOOGLE' || store.authMode === 'OFFLINE';
   if (isSignedIn && getRouteFromHash() === 'auth') {
@@ -215,3 +219,4 @@ setTimeout(() => {
 }, 400);
 
 renderApp();
+renderTeamBuzzerOverlay();

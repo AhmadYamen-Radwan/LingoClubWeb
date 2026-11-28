@@ -4,6 +4,7 @@ import { CEFR_LABELS, CEFR_LEVELS, DIFFICULTY_CONFIG, DIFFICULTY_LEVELS, el } fr
 import { store } from '../store/app-store.js';
 import { createDailyGoalRingCanvas, createLanguageCubeCanvas } from '../components/canvas-3d.js';
 import { createCefrBadge, openAiKeyModal, renderCefrFilterRow } from '../components/ui-shared.js';
+import { createGlobalTeamLeaderboard } from '../components/global-team-leaderboard.js';
 
 export function renderHomeView({ navigate }) {
   const p = store.profile || {};
@@ -23,7 +24,7 @@ export function renderHomeView({ navigate }) {
   const modeTiles = [
     { route: 'quiz', icon: '⚡', title: 'Live Quiz Clash', sub: 'English & Arabic Quizzes, AI Free Prompt', bg: 'var(--primary-soft)', ink: 'var(--on-primary-soft)', tag: 'LIVE + AR' },
     { route: 'curriculum', icon: '📅', title: 'Weekly 200-Word Club', sub: 'Week 1 & 2 · 400 words', bg: 'var(--tertiary-soft)', ink: 'var(--on-tertiary-soft)', tag: 'CLUB' },
-    { route: 'arcade', icon: '🕵️', title: 'Interactive Arcade', sub: '8 EN Games + 4 Arabic Games (ألعاب عربية)', bg: 'var(--accent-soft)', ink: 'var(--on-accent-soft)', tag: '12 GAMES' },
+    { route: 'arcade', icon: '🕵️', title: 'Interactive Arcade', sub: '10 EN Games + 6 Arabic Games (ألعاب عربية)', bg: 'var(--accent-soft)', ink: 'var(--on-accent-soft)', tag: '16 GAMES' },
     { route: 'cards', icon: '🃏', title: 'Deck Studio', sub: '3D Flip & Custom Decks', bg: 'var(--secondary-soft)', ink: 'var(--on-secondary-soft)', tag: '3D' },
     { route: 'puzzles', icon: '🧩', title: 'Word Forge Puzzles', sub: 'Scramble, Match, Cloze', bg: 'var(--sky-soft)', ink: 'var(--on-sky-soft)', tag: 'BRAIN' },
     { route: 'roleplay', icon: '🎭', title: 'Roleplay Stage', sub: 'AI Scenes & Voice Coach', bg: 'var(--purple-soft)', ink: 'var(--on-purple-soft)', tag: 'VOICE' },
@@ -31,6 +32,7 @@ export function renderHomeView({ navigate }) {
     { route: 'guessing', icon: '🎲', title: 'Taboo & Act Party', sub: 'Forbidden Clues & Timer', bg: 'var(--secondary-soft)', ink: 'var(--on-secondary-soft)', tag: 'PARTY' },
     { route: 'dictionary', icon: '📘', title: 'Bilingual Dictionary', sub: '18,600+ EN↔AR Glossary', bg: 'var(--tertiary-soft)', ink: 'var(--on-tertiary-soft)', tag: '18.6K' },
     { route: 'leaderboard', icon: '🏆', title: 'Global Leaderboard', sub: 'Top 3 Podium & Ranks', bg: 'var(--accent-soft)', ink: 'var(--on-accent-soft)', tag: 'RANKS' },
+    { route: 'teams', icon: '🛡️', title: 'Teams & Kahoot Battle', sub: 'Squad Podium & Game Contributions', bg: 'var(--accent-soft)', ink: 'var(--on-accent-soft)', tag: 'TEAMS' },
     { route: 'chat', icon: '💬', title: 'Team Chat & Squad', sub: 'Teacher Hub & Cross-Tab', bg: 'var(--primary-soft)', ink: 'var(--on-primary-soft)', tag: 'SQUAD' },
     { route: 'tutor', icon: '🎓', title: 'Tutor Progress Portal', sub: 'Student Roster & Linking', bg: 'var(--sky-soft)', ink: 'var(--on-sky-soft)', tag: 'TUTOR' }
   ];
@@ -209,6 +211,9 @@ export function renderHomeView({ navigate }) {
         renderCefrFilterRow(store.selectedCefrFilter, (lvl) => store.setCefrFilter(lvl))
       )
     ),
+
+    // Global Team Leaderboard (Top 5 across all active game rooms)
+    createGlobalTeamLeaderboard({ navigate, maxTeams: 5, compact: true }),
 
     // 12 Tactile Mode Tiles
     el('h2', { className: 'section-title' }, 'Learning Studio'),

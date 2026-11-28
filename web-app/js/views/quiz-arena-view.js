@@ -122,57 +122,73 @@ function startSoloBlitz({ title, cefrLevel, questions, difficulty }) {
 
 const AI_TOPIC_PRESETS = [
   'General Knowledge & Facts',
-  'Arabic Grammar & Nahw (قواعد ونحو)',
-  'Arabic Vocabulary & Proverbs (مفردات وأمثال)',
+  'ألغاز الجرائم والتحقيق (Arabic Crime Mysteries)',
+  'حقائق العلوم والفضاء (Arabic Science & Space)',
+  'تاريخ وحضارات وعجائب العالم (Arabic History)',
   'Science & Space',
   'World History & Geography',
   'Technology & AI',
   'Animals & Nature',
   'Sports & Pop Culture',
   'Everyday Conversations',
-  'English Grammar & Idioms',
+  'English Idioms & Expressions',
   'Arabic–English Vocabulary'
 ];
 
-function openAiQuizGeneratorModal() {
+function openAiQuizGeneratorModal({ prefillQuiz = null } = {}) {
+  const initialTopic =
+    prefillQuiz?.topic ||
+    (quizLanguageFilter === 'AR' ? 'ألغاز الجرائم والتحقيق (Arabic Crime Mysteries)' : 'General Knowledge & Facts');
   const topicInput = el('input', {
     type: 'text',
     className: 'field',
-    placeholder: 'Type ANY topic (e.g. General Facts, Football, قوافي عربية, Space...)',
-    value: quizLanguageFilter === 'AR' ? 'Arabic Vocabulary & Proverbs (مفردات وأمثال)' : 'General Knowledge & Facts'
+    placeholder: 'Type ANY topic (e.g. General Facts, Crime Mysteries, حقائق الفضاء...)',
+    value: initialTopic
   });
   const freePromptInput = el('textarea', {
     id: 'ai-quiz-free-prompt',
     className: 'field',
     rows: 3,
-    placeholder: 'Optional free prompt: e.g. "Focus on tricky real-world examples, add hints in Arabic, or ask about 1990s World Cup facts..."'
+    placeholder: 'Free prompt instructions: e.g. "Focus on tricky real-world examples, add hints in Arabic, or ask about 1990s World Cup facts..."',
+    value: prefillQuiz?.customPrompt || ''
   });
+  freePromptInput.value = prefillQuiz?.customPrompt || '';
+
   const levelSelect = el(
     'select',
     { className: 'field' },
-    ...CEFR_LEVELS.map((l) => el('option', { value: l, selected: l === (store.profile?.learningLevel || 'B1') }, CEFR_LABELS[l] || l))
+    ...CEFR_LEVELS.map((l) =>
+      el('option', { value: l, selected: l === (prefillQuiz?.cefrLevel || store.profile?.learningLevel || 'B1') }, CEFR_LABELS[l] || l)
+    )
   );
   const diffSelect = el(
     'select',
     { className: 'field' },
     ...DIFFICULTY_LEVELS.map((d) =>
-      el('option', { value: d, selected: d === (store.selectedDifficulty || 'MEDIUM') }, `${DIFFICULTY_CONFIG[d].label} (${DIFFICULTY_CONFIG[d].timeLimitSec}s/Q)`)
+      el(
+        'option',
+        { value: d, selected: d === (prefillQuiz?.difficulty || store.selectedDifficulty || 'MEDIUM') },
+        `${DIFFICULTY_CONFIG[d].label} (${DIFFICULTY_CONFIG[d].timeLimitSec}s/Q)`
+      )
     )
   );
+  const defaultMode =
+    prefillQuiz?.language === 'AR' || quizLanguageFilter === 'AR' ? 'ARABIC' : 'AUTO';
   const modeSelect = el(
     'select',
     { className: 'field' },
-    el('option', { value: 'AUTO', selected: quizLanguageFilter !== 'AR' }, 'Auto (Match Topic & Prompt)'),
+    el('option', { value: 'AUTO', selected: defaultMode === 'AUTO' }, 'Auto (Match Topic & Prompt)'),
     el('option', { value: 'GENERAL' }, 'General Facts & Trivia'),
     el('option', { value: 'VOCAB' }, 'English & Arabic Vocab'),
-    el('option', { value: 'ARABIC', selected: quizLanguageFilter === 'AR' }, '🇸🇦 Arabic Language (العربية)')
+    el('option', { value: 'ARABIC', selected: defaultMode === 'ARABIC' }, '🇸🇦 Arabic Language (العربية)')
   );
+  const initialCount = Math.min(Math.max(Number(prefillQuiz?.questions?.length) || 10, 3), 60);
   const countInput = el('input', {
     type: 'number',
     className: 'field',
     min: '3',
     max: '60',
-    value: '10',
+    value: String(initialCount),
     placeholder: '3 – 60'
   });
   const countPresets = [5, 10, 20, 30, 50];
@@ -188,7 +204,7 @@ function openAiQuizGeneratorModal() {
       'button',
       {
         type: 'button',
-        className: `chip ${n === 10 ? 'selected' : ''}`,
+        className: `chip ${n === initialCount ? 'selected' : ''}`,
         dataset: { count: String(n) },
         onClick: () => {
           countInput.value = String(n);
@@ -200,12 +216,123 @@ function openAiQuizGeneratorModal() {
   );
   countInput.addEventListener('input', syncCountChips);
 
+  const savedMatchesContainer = el('div', { className: 'stack-xs' });
+  const getMatchingSavedQuizzes = () => {
+    const allSaved = store.customQuizzes || [];
+    if (!allSaved.length) return [];
+    const topicQ = topicInput.value.trim().toLowerCase();
+    const promptQ = freePromptInput.value.trim().toLowerCase();
+    const scored = allSaved.map((q) => {
+      let score = 0;
+      const qt = String(q.topic || '').toLowerCase();
+      const qTitle = String(q.title || '').toLowerCase();
+      const qp = String(q.customPrompt || '').toLowerCase();
+      if (promptQ && qp && (qp === promptQ || qp.includes(promptQ) || promptQ.includes(qp))) score += 5;
+      if (topicQ && (qt.includes(topicQ) || topicQ.includes(qt) || qTitle.includes(topicQ))) score += 3;
+      if (q.customPrompt) score += 1;
+      return { q, score };
+    });
+    return scored
+      .sort((a, b) => b.score - a.score || (b.q.createdAtMs || 0) - (a.q.createdAtMs || 0))
+      .slice(0, 3)
+      .map((x) => x.q);
+  };
+
+  let genPlayBtn;
+  const renderSavedMatches = () => {
+    clearEl(savedMatchesContainer);
+    const savedList = getMatchingSavedQuizzes();
+    if (!savedList.length) {
+      if (genPlayBtn) genPlayBtn.textContent = '✨ Save & Play Solo';
+      return;
+    }
+    const topicLow = topicInput.value.trim().toLowerCase();
+    const promptLow = freePromptInput.value.trim().toLowerCase();
+    const hasExactOrCloseMatch = savedList.some((q) => {
+      const qt = String(q.topic || '').toLowerCase();
+      const qp = String(q.customPrompt || '').toLowerCase();
+      return (promptLow && qp === promptLow) || (topicLow && qt === topicLow);
+    });
+    if (genPlayBtn) {
+      genPlayBtn.textContent = hasExactOrCloseMatch ? '🆕 Brand-New Set & Play' : '✨ Save & Play Solo';
+    }
+
+    savedMatchesContainer.appendChild(
+      el(
+        'div',
+        { className: 'card card-soft-primary stack-xs', style: { padding: '10px 12px' } },
+        el('div', { className: 'row-between' },
+          el('strong', { className: 'small' }, '📚 Reuse a Saved Custom Quiz (No Regeneration Needed)'),
+          el('span', { className: 'xs muted' }, `${(store.customQuizzes || []).length} saved`)
+        ),
+        ...savedList.map((sq) => {
+          const isAr = sq.language === 'AR' || isArabicText(sq.title);
+          return el(
+            'div',
+            {
+              className: 'row-between',
+              style: {
+                gap: '8px',
+                padding: '6px 8px',
+                borderRadius: '10px',
+                background: 'var(--surface)',
+                flexWrap: 'wrap'
+              }
+            },
+            el(
+              'div',
+              { className: 'stack-xs flex-1', style: { minWidth: '160px' } },
+              el('div', { className: `small ${isAr ? 'arabic-text' : ''}`, style: { fontWeight: '700' }, dir: isAr ? 'rtl' : 'ltr' }, `${sq.title} (${(sq.questions || []).length} Qs)`),
+              sq.customPrompt
+                ? el('div', { className: `xs muted ${isArabicText(sq.customPrompt) ? 'arabic-text' : ''}`, dir: isArabicText(sq.customPrompt) ? 'rtl' : 'ltr' }, `💬 ${sq.customPrompt.slice(0, 70)}${sq.customPrompt.length > 70 ? '…' : ''}`)
+                : null
+            ),
+            el(
+              'div',
+              { className: 'row', style: { gap: '6px' } },
+              el('button', {
+                type: 'button',
+                className: 'btn btn-primary small',
+                onClick: () => {
+                  closeModal();
+                  startSoloBlitz({
+                    title: sq.title,
+                    cefrLevel: sq.cefrLevel,
+                    questions: sq.questions || [],
+                    difficulty: diffSelect.value
+                  });
+                }
+              }, '▶ Play Saved'),
+              el('button', {
+                type: 'button',
+                className: 'btn btn-mint small',
+                onClick: async () => {
+                  try {
+                    closeModal();
+                    await store.hostQuizRoom({
+                      quizTitle: sq.title,
+                      cefrLevel: sq.cefrLevel || 'B1',
+                      questions: (sq.questions || []).map((q) => ({ ...q, timeLimitSec: resolveQuestionLimitSec(q, diffSelect.value) }))
+                    });
+                  } catch (err) {
+                    store.toast(err.message, 'error');
+                  }
+                }
+              }, '🎙️ Host Saved')
+            )
+          );
+        })
+      )
+    );
+  };
+
   let topicChips = [];
   const syncTopicChips = () => {
     const val = topicInput.value.trim().toLowerCase();
     topicChips.forEach((btn) => {
       btn.classList.toggle('selected', btn.dataset.topic.toLowerCase() === val);
     });
+    renderSavedMatches();
   };
   topicChips = AI_TOPIC_PRESETS.map((preset) =>
     el(
@@ -226,53 +353,96 @@ function openAiQuizGeneratorModal() {
     )
   );
   topicInput.addEventListener('input', syncTopicChips);
+  freePromptInput.addEventListener('input', renderSavedMatches);
 
   const statusEl = el('p', { className: 'small muted hidden', style: { margin: 0 } });
+  const freshSetToggle = el('input', { type: 'checkbox', id: 'ai-fresh-set-toggle', checked: true });
+  freshSetToggle.checked = true;
 
-  const genBtn = el(
+  const runGenerateAction = async (afterMode) => {
+    const requestedCount = Math.min(Math.max(Number(countInput.value) || 10, 3), 60);
+    countInput.value = String(requestedCount);
+    const allBtns = [genPlayBtn, genHostBtn, genSaveOnlyBtn].filter(Boolean);
+    allBtns.forEach((b) => { b.disabled = true; });
+    statusEl.textContent = `Creating ${requestedCount} interactive questions...`;
+    statusEl.classList.remove('hidden');
+
+    const matchingSaved = getMatchingSavedQuizzes();
+    const avoidFromSaved = freshSetToggle.checked
+      ? matchingSaved.flatMap((q) => (q.questions || []).map((qq) => qq.prompt)).filter(Boolean)
+      : [];
+
+    try {
+      const draft = await aiService.generateQuizDraft({
+        topic: topicInput.value.trim() || 'General Knowledge & Facts',
+        cefrLevel: levelSelect.value,
+        difficulty: diffSelect.value,
+        customPrompt: freePromptInput.value.trim(),
+        questionCount: requestedCount,
+        quizMode: modeSelect.value,
+        avoidPrompts: avoidFromSaved,
+        freshSet: freshSetToggle.checked,
+        onProgress: (msg) => {
+          statusEl.textContent = msg;
+        }
+      });
+      const savedQuiz = await store.saveCustomQuiz(draft);
+      closeModal();
+      const targetQuiz = savedQuiz?.questions?.length ? savedQuiz : draft;
+      if (afterMode === 'PLAY') {
+        startSoloBlitz({ ...targetQuiz, difficulty: diffSelect.value });
+      } else if (afterMode === 'HOST') {
+        await store.hostQuizRoom({
+          quizTitle: targetQuiz.title,
+          cefrLevel: targetQuiz.cefrLevel || levelSelect.value || 'B1',
+          questions: (targetQuiz.questions || []).map((q) => ({ ...q, timeLimitSec: resolveQuestionLimitSec(q, diffSelect.value) }))
+        });
+      }
+    } catch (err) {
+      statusEl.textContent = err?.message || 'Could not generate quiz.';
+    } finally {
+      allBtns.forEach((b) => { b.disabled = false; });
+      renderSavedMatches();
+    }
+  };
+
+  genPlayBtn = el(
     'button',
     {
       type: 'button',
-      className: 'btn btn-primary btn-full',
-      onClick: async () => {
-        const requestedCount = Math.min(Math.max(Number(countInput.value) || 10, 3), 60);
-        countInput.value = String(requestedCount);
-        genBtn.disabled = true;
-        genBtn.textContent = `✨ Generating ${requestedCount} Questions...`;
-        statusEl.textContent = `Creating ${requestedCount} interactive questions...`;
-        statusEl.classList.remove('hidden');
-        try {
-          const draft = await aiService.generateQuizDraft({
-            topic: topicInput.value.trim() || 'General Knowledge & Facts',
-            cefrLevel: levelSelect.value,
-            difficulty: diffSelect.value,
-            customPrompt: freePromptInput.value.trim(),
-            questionCount: requestedCount,
-            quizMode: modeSelect.value,
-            onProgress: (msg) => {
-              statusEl.textContent = msg;
-            }
-          });
-          await store.saveCustomQuiz(draft);
-          closeModal();
-          startSoloBlitz({ ...draft, difficulty: diffSelect.value });
-        } catch (err) {
-          statusEl.textContent = err?.message || 'Could not generate quiz.';
-        } finally {
-          genBtn.disabled = false;
-          genBtn.textContent = '✨ Generate & Play Now';
-        }
-      }
+      className: 'btn btn-primary flex-1',
+      onClick: () => runGenerateAction('PLAY')
     },
-    '✨ Generate & Play Now'
+    '✨ Save & Play Solo'
+  );
+  const genHostBtn = el(
+    'button',
+    {
+      type: 'button',
+      className: 'btn btn-mint flex-1',
+      onClick: () => runGenerateAction('HOST')
+    },
+    '🎙️ Generate & Host PIN'
+  );
+  const genSaveOnlyBtn = el(
+    'button',
+    {
+      type: 'button',
+      className: 'btn btn-outline btn-full',
+      onClick: () => runGenerateAction('SAVE_ONLY')
+    },
+    '💾 Generate & Save to My Quizzes Only'
   );
 
+  renderSavedMatches();
+
   openModal({
-    title: '✨ AI Quiz Generator',
-    subtitle: 'Pick a topic, add your own free prompt instructions, choose English or Arabic, and generate 3–60 questions',
+    title: '✨ Custom Quiz Prompt Studio',
+    subtitle: 'Reuse any saved prompted quiz anytime, or generate a brand-new non-repeating set (3–60 Qs)',
     content: el(
       'div',
       { className: 'stack-md' },
+      savedMatchesContainer,
       el(
         'div',
         { className: 'stack-xs' },
@@ -283,7 +453,7 @@ function openAiQuizGeneratorModal() {
       el(
         'div',
         { className: 'stack-xs' },
-        el('label', { className: 'field-label', htmlFor: 'ai-quiz-free-prompt' }, 'Custom Free Prompt / Instructions (Optional)'),
+        el('label', { className: 'field-label', htmlFor: 'ai-quiz-free-prompt' }, 'Custom Free Prompt / Instructions (Saved with Quiz)'),
         freePromptInput
       ),
       el(
@@ -300,15 +470,22 @@ function openAiQuizGeneratorModal() {
         el('div', { className: 'stack-xs' }, el('label', { className: 'field-label' }, 'Difficulty & Timer'), diffSelect)
       ),
       el('div', { className: 'stack-xs' }, el('label', { className: 'field-label' }, 'Language / Quiz Style'), modeSelect),
+      el(
+        'label',
+        { className: 'row small', style: { gap: '8px', cursor: 'pointer' }, htmlFor: 'ai-fresh-set-toggle' },
+        freshSetToggle,
+        el('span', {}, 'Exclude previously generated questions for this prompt (Brand-New Set)')
+      ),
       statusEl,
-      genBtn
+      el('div', { className: 'row-wrap' }, genPlayBtn, genHostBtn),
+      genSaveOnlyBtn
     )
   });
 }
 
 function openCreateCustomQuizModal() {
-  const titleInput = el('input', { type: 'text', className: 'field', placeholder: 'e.g., World Trivia or مسابقة عربية' });
-  const topicInput = el('input', { type: 'text', className: 'field', placeholder: 'Topic (e.g., Science, نحو عربي)' });
+  const titleInput = el('input', { type: 'text', className: 'field', placeholder: 'e.g., World Trivia or ألغاز الجرائم' });
+  const topicInput = el('input', { type: 'text', className: 'field', placeholder: 'Topic (e.g., Science, حقائق الفضاء)' });
   const levelSelect = el('select', { className: 'field' }, ...CEFR_LEVELS.map((l) => el('option', { value: l, selected: l === (store.profile?.learningLevel || 'B1') }, CEFR_LABELS[l] || l)));
   const langSelect = el('select', { className: 'field' }, el('option', { value: 'EN' }, '🇬🇧 English'), el('option', { value: 'AR' }, '🇸🇦 Arabic (العربية)'));
 
@@ -499,10 +676,21 @@ function renderSoloBlitzView() {
     { className: 'stack-md' },
     el(
       'div',
-      { className: 'row-between' },
+      { className: 'row-between', style: { flexWrap: 'wrap', gap: '8px' } },
       el('button', { type: 'button', className: 'btn btn-outline', onClick: () => { stopSoloTimer(); soloState = null; store.emit('change'); } }, '✕ Exit Blitz'),
-      el('span', { className: 'badge-pill card-soft-primary mono' }, `Q ${s.index + 1}/${s.questions.length}`),
-      el('span', { id: 'solo-timer-pill', className: `badge-pill mono ${s.timeLeft <= 5 ? 'card-soft-secondary' : 'card-soft-amber'}` }, s.timeLeft > 0 ? `⏱ ${s.timeLeft}s` : '⏱ Time Up!')
+      el('div', { className: 'row', style: { gap: '8px' } },
+        el('button', {
+          type: 'button',
+          className: 'btn btn-soft small',
+          onClick: () => store.openTeamBuzzer({
+            contextKey: `solo:${s.title}`,
+            title: `🚨 ${s.title}`,
+            prompt: q.prompt
+          })
+        }, '🚨 Team Buzzer'),
+        el('span', { className: 'badge-pill card-soft-primary mono' }, `Q ${s.index + 1}/${s.questions.length}`),
+        el('span', { id: 'solo-timer-pill', className: `badge-pill mono ${s.timeLeft <= 5 ? 'card-soft-secondary' : 'card-soft-amber'}` }, s.timeLeft > 0 ? `⏱ ${s.timeLeft}s` : '⏱ Time Up!')
+      )
     ),
 
     el(
@@ -618,14 +806,32 @@ function buildLiveRoomStageNode(s, room) {
         el('div', { className: 'small' }, `${room.quizTitle} · ${players.length} players`)
       ),
       el(
-        'button',
-        {
-          type: 'button',
-          className: 'btn',
-          style: { background: 'rgba(255,255,255,0.2)', color: '#FFFFFF' },
-          onClick: () => { stopRoomTimer(); store.leaveLiveRoom(); }
-        },
-        s.isHost ? 'End Room (Kick All)' : 'Leave Room'
+        'div',
+        { className: 'row', style: { gap: '8px' } },
+        el(
+          'button',
+          {
+            type: 'button',
+            className: 'btn',
+            style: { background: 'rgba(255,255,255,0.22)', color: '#FFFFFF' },
+            onClick: () => store.openTeamBuzzer({
+              contextKey: `room:${s.roomCode}`,
+              title: `🚨 Live Buzzer · ${room.quizTitle}`,
+              prompt: q?.prompt || 'Buzz in first to answer!'
+            })
+          },
+          '🚨 Team Buzzer'
+        ),
+        el(
+          'button',
+          {
+            type: 'button',
+            className: 'btn',
+            style: { background: 'rgba(255,255,255,0.2)', color: '#FFFFFF' },
+            onClick: () => { stopRoomTimer(); store.leaveLiveRoom(); }
+          },
+          s.isHost ? 'End Room (Kick All)' : 'Leave Room'
+        )
       )
     ),
 
@@ -739,9 +945,16 @@ function buildLiveRoomStageNode(s, room) {
 }
 
 function buildLiveRoomMessagesNodes(roomMessages) {
-  return (roomMessages || []).slice(-10).map((m) =>
-    el('div', { className: `small ${isArabicText(m.text) ? 'arabic-text' : ''}` }, el('strong', {}, `${m.senderName}: `), m.text)
-  );
+  return (roomMessages || []).slice(-10).map((m) => {
+    const raw = String(m.text || '');
+    if (raw.startsWith('[BUZZ|') && raw.endsWith(']')) {
+      const parts = raw.slice(6, -1).split('|');
+      const teamName = parts[1] || 'Squad';
+      const playerName = parts[2] || m.senderName || 'Player';
+      return el('div', { className: 'small', style: { fontWeight: '700', color: 'var(--primary)' } }, `⚡ ${teamName} (${playerName}) buzzed in! (5s lock)`);
+    }
+    return el('div', { className: `small ${isArabicText(raw) ? 'arabic-text' : ''}` }, el('strong', {}, `${m.senderName}: `), raw);
+  });
 }
 
 export function patchQuizArenaLiveRoom() {
@@ -882,6 +1095,48 @@ export function renderQuizArenaView({ navigate }) {
     const isAr = pack.language === 'AR' || isArabicText(pack.title);
     const diffSec = store.difficultyConfig?.timeLimitSec || 20;
     const scaledQuestions = (pack.questions || []).map((q) => ({ ...q, timeLimitSec: resolveQuestionLimitSec(q, activeDiff) }));
+    const newSetBtn = isCustom
+      ? el(
+          'button',
+          {
+            type: 'button',
+            className: 'btn btn-soft small',
+            title: 'Generate a brand-new set of questions using this quiz topic & prompt',
+            onClick: async () => {
+              newSetBtn.disabled = true;
+              newSetBtn.textContent = '⏳...';
+              try {
+                const draft = await aiService.generateQuizDraft({
+                  topic: pack.topic || pack.title,
+                  cefrLevel: pack.cefrLevel || 'B1',
+                  difficulty: activeDiff,
+                  customPrompt: pack.customPrompt || '',
+                  questionCount: Math.max(3, (pack.questions || []).length || 10),
+                  quizMode: isAr ? 'ARABIC' : 'AUTO',
+                  avoidPrompts: (pack.questions || []).map((q) => q.prompt),
+                  freshSet: true
+                });
+                await store.updateCustomQuiz(pack.id, {
+                  title: pack.title,
+                  topic: pack.topic || draft.topic,
+                  cefrLevel: pack.cefrLevel || draft.cefrLevel,
+                  customPrompt: pack.customPrompt || draft.customPrompt || '',
+                  language: draft.language,
+                  questions: draft.questions
+                });
+                store.toast(`Loaded a fresh non-repeating set for "${pack.title}"!`);
+              } catch (err) {
+                store.toast(err?.message || 'Could not generate new set.', 'error');
+              } finally {
+                newSetBtn.disabled = false;
+                newSetBtn.textContent = '🔄 New Set';
+              }
+            }
+          },
+          '🔄 New Set'
+        )
+      : null;
+
     return el(
       'div',
       { className: 'card stack-sm' },
@@ -892,6 +1147,13 @@ export function renderQuizArenaView({ navigate }) {
         el('div', { className: 'row', style: { gap: '4px' } }, isAr ? el('span', { className: 'badge-pill card-soft-amber' }, '🇸🇦 AR') : null, createCefrBadge(pack.cefrLevel || 'B1'))
       ),
       el('p', { className: 'small muted', style: { margin: 0 } }, `${pack.topic || 'General'} · ${scaledQuestions.length} Qs · ⏱ ${diffSec}s/Q${isClub ? ' · Official Club' : ''}`),
+      pack.customPrompt
+        ? el(
+            'div',
+            { className: `xs muted ${isArabicText(pack.customPrompt) ? 'arabic-text' : ''}`, dir: isArabicText(pack.customPrompt) ? 'rtl' : 'ltr', style: { background: 'var(--surface-variant)', padding: '6px 10px', borderRadius: '8px' } },
+            `💬 Prompt: ${pack.customPrompt}`
+          )
+        : null,
       el(
         'div',
         { className: 'row-wrap' },
@@ -923,6 +1185,19 @@ export function renderQuizArenaView({ navigate }) {
           },
           '🎙️ Host PIN'
         ),
+        newSetBtn,
+        isCustom
+          ? el(
+              'button',
+              {
+                type: 'button',
+                className: 'btn btn-outline small',
+                title: 'Edit prompt or save a new copy in Prompt Studio',
+                onClick: () => openAiQuizGeneratorModal({ prefillQuiz: pack })
+              },
+              '✨ Prompt'
+            )
+          : null,
         isCustom
           ? el(
               'button',
@@ -1066,7 +1341,7 @@ export function renderQuizArenaView({ navigate }) {
     el(
       'div',
       { className: 'grid-2' },
-      el('button', { type: 'button', className: 'btn btn-soft btn-full', onClick: openAiQuizGeneratorModal }, '✨ Generate AI Quiz (Free Prompt)'),
+      el('button', { type: 'button', className: 'btn btn-soft btn-full', onClick: () => openAiQuizGeneratorModal() }, '✨ Custom Quiz Prompt Studio'),
       el('button', { type: 'button', className: 'btn btn-outline btn-full', onClick: openCreateCustomQuizModal }, '📝 Create Custom Quiz')
     ),
 

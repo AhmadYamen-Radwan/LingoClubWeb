@@ -24,6 +24,7 @@ import {
   setThemeMode
 } from '../services/offline-store.js';
 import { nearbySync } from '../services/nearby-sync.js';
+import { audioService } from '../services/audio-service.js';
 
 class AppStore extends EventTarget {
   constructor() {
@@ -46,6 +47,8 @@ class AppStore extends EventTarget {
     this.chatMessages = [];
     this.clubContent = [];
     this.globalScores = [];
+    this.teamContributions = this.offlineStore.loadTeamContributions();
+    this.teamScoresMap = this.offlineStore.loadTeamScoresMap();
     this.studentsProgress = [];
     this.selectedStudentDetail = null;
 
@@ -55,6 +58,21 @@ class AppStore extends EventTarget {
     this._roomClockKey = '';
     this._roomClockStartedMs = 0;
     this._lastRoomPhaseKey = '';
+
+    // Team Buzzer Overlay State (5-second lockout after buzz-in)
+    this.teamBuzzer = {
+      open: false,
+      contextKey: 'global',
+      title: 'Team Buzzer',
+      prompt: '',
+      teams: [],
+      activeBuzz: null,
+      buzzHistory: [],
+      sessionScores: {}
+    };
+    this._buzzerUnlockTimer = null;
+    this._onBuzzResolve = null;
+    this._processedCloudBuzzIds = new Set();
 
     // Nearby cross-tab squad state
     this.nearbySnapshot = nearbySync.getSnapshot();
@@ -122,6 +140,34 @@ class AppStore extends EventTarget {
     // Nearby cross-tab updates
     nearbySync.subscribe((ev, snap) => {
       this.nearbySnapshot = snap;
+      if (ev?.type === 'ARCADE_ROOM_SYNC') {
+        this.emit('team-leaderboard');
+        return;
+      }
+      if (ev?.type === 'TEAM_BUZZER') {
+        const incoming = ev.buzz || snap?.buzzer || null;
+        if (incoming && Date.now() < Number(incoming.lockUntilMs || 0)) {
+          const sameContext =
+            !this.teamBuzzer.contextKey ||
+            incoming.contextKey === this.teamBuzzer.contextKey ||
+            this.teamBuzzer.open;
+          if (sameContext && this.teamBuzzer.activeBuzz?.id !== incoming.id) {
+            this.teamBuzzer = {
+              ...this.teamBuzzer,
+              activeBuzz: incoming
+            };
+            audioService.playBuzzer();
+            this._scheduleBuzzerUnlockTimer(incoming.lockUntilMs);
+            this.emit('buzzer');
+          }
+        } else if (!incoming && this.teamBuzzer.activeBuzz) {
+          clearTimeout(this._buzzerUnlockTimer);
+          this._buzzerUnlockTimer = null;
+          this.teamBuzzer = { ...this.teamBuzzer, activeBuzz: null };
+          this.emit('buzzer');
+        }
+        if (ev?.fromTab && ev.fromTab !== nearbySync.tabId) return;
+      }
       if (ev?.type === 'SQUAD_MESSAGE' && ev.message) {
         this.offlineStore.appendMessage(ev.message);
         if (this.isOfflineMode && ev.message.teamId === this.selectedTeamId) {
@@ -142,6 +188,7 @@ class AppStore extends EventTarget {
           this._applyLocalRoomSnapshot(latest);
         }
       }
+      this.emit('team-leaderboard');
       this.emit('change');
     });
 
@@ -199,6 +246,8 @@ class AppStore extends EventTarget {
     this.selectedTeamId = this.profile.teamId || OFFLINE_DEFAULT_TEAM_ID;
     this.chatMessages = this.offlineStore.loadMessagesMap()[this.selectedTeamId] || [];
     this.globalScores = this.offlineStore.loadScores();
+    this.teamContributions = this.offlineStore.loadTeamContributions();
+    this.teamScoresMap = this.offlineStore.loadTeamScoresMap();
     this.clubContent = [];
     this.studentsProgress = [];
     this.roomSession = null;
@@ -499,9 +548,13 @@ class AppStore extends EventTarget {
     roleplayCompleted = false,
     arcadePlayed = false,
     highCombo = 0,
-    publishLeaderboardMode = null
+    publishLeaderboardMode = null,
+    skipAutoTeamContrib = false
   }) {
     const level = cefrLevel || this.profile?.learningLevel || CefrLevel.B1;
+    const activeTeamId = this.profile?.teamId || this.selectedTeamId || OFFLINE_DEFAULT_TEAM_ID;
+    const activeTeamObj = (this.teams || []).find((t) => t.id === activeTeamId);
+    const activeTeamName = this.profile?.teamName || activeTeamObj?.name || 'Offline Explorers';
     const newBadgeIds = this._checkAndNotifyBadges({
       sessionsCompletedDelta,
       weeklyWordsMasteredDelta,
@@ -514,6 +567,23 @@ class AppStore extends EventTarget {
       arcadePlayed,
       highCombo
     });
+
+    if (!skipAutoTeamContrib && score > 0 && activeTeamId) {
+      this.awardTeamContribution(
+        {
+          teamId: activeTeamId,
+          teamName: activeTeamName,
+          playerName: this.currentUserName,
+          avatarColor: this.profile?.avatarColor || 'INDIGO',
+          title,
+          gameMode: publishLeaderboardMode || activityType,
+          points: score,
+          accuracyPct,
+          cefrLevel: level
+        },
+        false
+      );
+    }
 
     if (this.isOfflineMode) {
       this.profile = this.offlineStore.awardProgress({
@@ -544,7 +614,10 @@ class AppStore extends EventTarget {
           score,
           accuracyPct,
           streak: highCombo,
-          gameMode: publishLeaderboardMode
+          gameMode: publishLeaderboardMode,
+          avatarColor: this.profile?.avatarColor || 'INDIGO',
+          teamId: activeTeamId,
+          teamName: activeTeamName
         });
       }
       this.emit('change');
@@ -815,16 +888,29 @@ class AppStore extends EventTarget {
 
   async saveCustomQuiz(payload) {
     const qs = payload?.questions || [];
-    if (this.isOfflineMode || qs.length > 20) {
+    if (this.isOfflineMode || qs.length > 20 || payload?.customPrompt) {
       const savedLocal = this.offlineStore.saveCustomQuiz(payload);
       const cloudOnly = this.isOfflineMode ? [] : (this.customQuizzes || []).filter((q) => !String(q.id || '').startsWith('offline_quiz_'));
       this.customQuizzes = [...savedLocal, ...cloudOnly].sort((a, b) => (b.createdAtMs || 0) - (a.createdAtMs || 0));
       this.emit('change');
       this.toast(`Saved ${qs.length}-question quiz "${payload.title}"!`);
-      return;
+      return savedLocal[0];
     }
     await firebaseClient.saveCustomQuiz(payload);
     this.toast(`Saved quiz "${payload.title}"!`);
+    return payload;
+  }
+
+  async updateCustomQuiz(id, patch) {
+    if (this.isOfflineMode || String(id || '').startsWith('offline_quiz_')) {
+      const savedLocal = this.offlineStore.updateCustomQuiz(id, patch);
+      const cloudOnly = this.isOfflineMode ? [] : (this.customQuizzes || []).filter((q) => !String(q.id || '').startsWith('offline_quiz_'));
+      this.customQuizzes = [...savedLocal, ...cloudOnly].sort((a, b) => (b.createdAtMs || 0) - (a.createdAtMs || 0));
+      this.emit('change');
+      this.toast(`Updated "${patch?.title || 'Custom Quiz'}"!`);
+      return;
+    }
+    await this.saveCustomQuiz({ ...patch });
   }
 
   async deleteCustomQuiz(id) {
@@ -954,11 +1040,15 @@ class AppStore extends EventTarget {
     const cleanNick = String(nickname || this.currentUserName).trim().slice(0, 24) || 'Explorer';
 
     if (this.isOfflineMode) {
+      const myTeamId = this.profile?.teamId || this.selectedTeamId || '';
+      const myTeamObj = (this.teams || []).find((t) => t.id === myTeamId);
       const room = nearbySync.joinLocalQuizRoom({
         roomCode: clean,
         playerUid: this.currentUserId,
         nickname: cleanNick,
-        avatarColor
+        avatarColor,
+        teamId: myTeamId,
+        teamName: this.profile?.teamName || myTeamObj?.name || ''
       });
       const existingPlayer = room.players?.[this.currentUserId];
       this.roomSession = {
@@ -1051,6 +1141,40 @@ class AppStore extends EventTarget {
       (roomMessages) => {
         if (!this.roomSession || this.roomSession.roomCode !== roomCode) return;
         this.roomSession = { ...this.roomSession, roomMessages };
+        // Parse cloud [BUZZ|teamId|teamName|playerName|buzzedAtMs] messages for cross-device 5s lockout
+        for (const msg of roomMessages) {
+          const txt = String(msg?.text || '');
+          if (txt.startsWith('[BUZZ|') && txt.endsWith(']')) {
+            const parts = txt.slice(6, -1).split('|');
+            if (parts.length >= 4) {
+              const buzzId = msg.id || `${parts[0]}_${parts[3]}`;
+              if (!this._processedCloudBuzzIds.has(buzzId)) {
+                this._processedCloudBuzzIds.add(buzzId);
+                const buzzedAtMs = Number(parts[3]) || msg.createdAtMs || Date.now();
+                const lockUntilMs = buzzedAtMs + 5000;
+                if (Date.now() < lockUntilMs) {
+                  this.teamBuzzer = {
+                    ...this.teamBuzzer,
+                    activeBuzz: {
+                      id: buzzId,
+                      contextKey: `room:${roomCode}`,
+                      teamId: parts[0],
+                      teamName: parts[1],
+                      playerUid: msg.senderUid || '',
+                      playerName: parts[2] || msg.senderName || 'Player',
+                      avatarColor: msg.avatarColor || 'INDIGO',
+                      buzzedAtMs,
+                      lockUntilMs
+                    }
+                  };
+                  audioService.playBuzzer();
+                  this._scheduleBuzzerUnlockTimer(lockUntilMs);
+                  this.emit('buzzer');
+                }
+              }
+            }
+          }
+        }
         this.emit('change');
       },
       () => {}
@@ -1457,6 +1581,447 @@ class AppStore extends EventTarget {
       this.toast(err.message, 'error');
       return null;
     }
+  }
+
+  // --- Kahoot-Style Team Battle Squads, Contributions & 5s Team Buzzer ---
+
+  getDefaultBattleTeams() {
+    const presets = [
+      { id: 'squad_crimson', name: 'Crimson Foxes', accentColor: 'CORAL', motto: 'Fast & Fearless' },
+      { id: 'squad_azure', name: 'Azure Hawks', accentColor: 'INDIGO', motto: 'Sharp Minds' },
+      { id: 'squad_amber', name: 'Amber Lions', accentColor: 'AMBER', motto: 'Bold Clues' },
+      { id: 'squad_mint', name: 'Mint Wolves', accentColor: 'MINT', motto: 'Team Synergy' }
+    ];
+    const merged = [];
+    const seenIds = new Set();
+    const myTeamId = this.profile?.teamId || this.selectedTeamId;
+
+    for (const t of this.teams || []) {
+      if (!t?.id || seenIds.has(t.id)) continue;
+      seenIds.add(t.id);
+      merged.push({
+        id: t.id,
+        name: t.name || 'Squad',
+        accentColor: t.accentColor || 'INDIGO',
+        motto: t.motto || 'Club Squad',
+        memberCount: t.memberCount || 1,
+        isMine: t.id === myTeamId
+      });
+    }
+    for (const p of presets) {
+      if (merged.length >= 4) break;
+      if (seenIds.has(p.id)) continue;
+      seenIds.add(p.id);
+      merged.push({ ...p, memberCount: 1, isMine: p.id === myTeamId });
+    }
+    return merged.slice(0, 4);
+  }
+
+  awardTeamContribution(
+    { teamId, teamName, playerName, avatarColor, title, gameMode, points, accuracyPct = 100, cefrLevel },
+    emitChange = true
+  ) {
+    const res = this.offlineStore.recordTeamContribution({
+      teamId,
+      teamName,
+      playerName: playerName || this.currentUserName,
+      avatarColor: avatarColor || this.profile?.avatarColor || 'INDIGO',
+      title,
+      gameMode,
+      points,
+      accuracyPct,
+      cefrLevel: cefrLevel || this.profile?.learningLevel || CefrLevel.B1
+    });
+    this.teamContributions = res.contributions;
+    this.teamScoresMap = res.teamScoresMap;
+    if (emitChange) this.emit('change');
+  }
+
+  _scheduleBuzzerUnlockTimer(lockUntilMs) {
+    if (this._buzzerUnlockTimer) {
+      clearTimeout(this._buzzerUnlockTimer);
+      this._buzzerUnlockTimer = null;
+    }
+    const delay = Math.max(50, lockUntilMs - Date.now());
+    this._buzzerUnlockTimer = setTimeout(() => {
+      this._buzzerUnlockTimer = null;
+      if (this.teamBuzzer.activeBuzz && this.teamBuzzer.activeBuzz.lockUntilMs === lockUntilMs) {
+        const ctx = this.teamBuzzer.contextKey;
+        this.teamBuzzer = { ...this.teamBuzzer, activeBuzz: null };
+        nearbySync.clearBuzzerEvent(ctx);
+        audioService.playUnlock();
+        this.emit('buzzer');
+      }
+    }, delay);
+  }
+
+  openTeamBuzzer({
+    contextKey = 'global',
+    title = '🚨 Team Buzzer',
+    prompt = '',
+    teams = null,
+    sessionScores = null,
+    onResolve = null
+  } = {}) {
+    const squadList = Array.isArray(teams) && teams.length >= 2 ? teams : this.getDefaultBattleTeams();
+    const keepScores = this.teamBuzzer.contextKey === contextKey ? this.teamBuzzer.sessionScores : {};
+    const nextScores = sessionScores ? { ...sessionScores } : { ...keepScores };
+    squadList.forEach((t) => {
+      if (typeof nextScores[t.id] !== 'number') nextScores[t.id] = 0;
+    });
+
+    const snapBuzz = nearbySync.getSnapshot().buzzer;
+    let activeBuzz = this.teamBuzzer.activeBuzz;
+    if (activeBuzz && Date.now() >= Number(activeBuzz.lockUntilMs || 0)) {
+      activeBuzz = null;
+    }
+    if (!activeBuzz && snapBuzz && snapBuzz.contextKey === contextKey && Date.now() < Number(snapBuzz.lockUntilMs || 0)) {
+      activeBuzz = snapBuzz;
+    }
+    if (activeBuzz) {
+      this._scheduleBuzzerUnlockTimer(activeBuzz.lockUntilMs);
+    }
+
+    this._onBuzzResolve = typeof onResolve === 'function' ? onResolve : null;
+    this.teamBuzzer = {
+      ...this.teamBuzzer,
+      open: true,
+      contextKey,
+      title,
+      prompt,
+      teams: squadList,
+      activeBuzz,
+      sessionScores: nextScores
+    };
+    audioService.playTransition();
+    this.emit('buzzer');
+  }
+
+  closeTeamBuzzer() {
+    this._onBuzzResolve = null;
+    this.teamBuzzer = { ...this.teamBuzzer, open: false };
+    this.emit('buzzer');
+  }
+
+  triggerTeamBuzz({ teamId, teamName, playerUid, playerName, avatarColor } = {}) {
+    const now = Date.now();
+    const cur = this.teamBuzzer.activeBuzz;
+    if (cur && now < Number(cur.lockUntilMs || 0)) {
+      return false;
+    }
+    const cleanTeamId = String(teamId || this.profile?.teamId || this.selectedTeamId || 'squad_crimson');
+    const matchedTeam =
+      (this.teamBuzzer.teams || []).find((t) => t.id === cleanTeamId) ||
+      (this.teams || []).find((t) => t.id === cleanTeamId);
+    const cleanTeamName = String(teamName || matchedTeam?.name || this.profile?.teamName || 'Squad');
+    const cleanPlayerName = String(playerName || this.currentUserName || 'Member').slice(0, 40);
+    const buzz = {
+      id: `buzz_${now}_${Math.random().toString(36).slice(2, 6)}`,
+      contextKey: this.teamBuzzer.contextKey || 'global',
+      teamId: cleanTeamId,
+      teamName: cleanTeamName,
+      playerUid: playerUid || this.currentUserId,
+      playerName: cleanPlayerName,
+      avatarColor: avatarColor || matchedTeam?.accentColor || this.profile?.avatarColor || 'INDIGO',
+      buzzedAtMs: now,
+      lockUntilMs: now + 5000
+    };
+
+    this.teamBuzzer = {
+      ...this.teamBuzzer,
+      activeBuzz: buzz
+    };
+    audioService.playBuzzer();
+    nearbySync.sendBuzzerEvent(buzz);
+    this._scheduleBuzzerUnlockTimer(buzz.lockUntilMs);
+
+    if (this.roomSession?.mode === 'CLOUD' && this.roomSession.roomCode) {
+      const marker = `[BUZZ|${cleanTeamId.slice(0, 32)}|${cleanTeamName.slice(0, 36)}|${cleanPlayerName.slice(0, 30)}|${now}]`;
+      this.sendLiveRoomMessage(marker.slice(0, 230), 'REACTION').catch(() => {});
+    }
+
+    this.emit('buzzer');
+    return true;
+  }
+
+  resolveTeamBuzz({ correct, points = 100 } = {}) {
+    const active = this.teamBuzzer.activeBuzz;
+    if (!active) return;
+    clearTimeout(this._buzzerUnlockTimer);
+    this._buzzerUnlockTimer = null;
+
+    const delta = correct ? Math.max(10, Number(points || 100)) : -25;
+    const prevScore = Number(this.teamBuzzer.sessionScores[active.teamId] || 0);
+    const nextScores = {
+      ...this.teamBuzzer.sessionScores,
+      [active.teamId]: Math.max(0, prevScore + delta)
+    };
+    const record = {
+      ...active,
+      correct: Boolean(correct),
+      pointsDelta: delta,
+      resolvedAtMs: Date.now()
+    };
+
+    this.teamBuzzer = {
+      ...this.teamBuzzer,
+      activeBuzz: null,
+      sessionScores: nextScores,
+      buzzHistory: [record, ...(this.teamBuzzer.buzzHistory || [])].slice(0, 12)
+    };
+    nearbySync.clearBuzzerEvent(this.teamBuzzer.contextKey);
+
+    if (correct) {
+      audioService.playCorrect();
+      this.awardTeamContribution(
+        {
+          teamId: active.teamId,
+          teamName: active.teamName,
+          playerName: active.playerName,
+          avatarColor: active.avatarColor,
+          title: this.teamBuzzer.title || 'Team Buzzer',
+          gameMode: 'TEAM_BUZZER',
+          points: delta,
+          accuracyPct: 100
+        },
+        false
+      );
+      this.toast(`⚡ ${active.teamName} +${delta} pts!`, 'badge');
+    } else {
+      audioService.playIncorrect();
+      this.toast(`${active.teamName} missed (-25 pts). Lockout cleared!`, 'error');
+    }
+
+    if (typeof this._onBuzzResolve === 'function') {
+      try {
+        this._onBuzzResolve({
+          buzz: active,
+          correct: Boolean(correct),
+          points: delta,
+          sessionScores: nextScores
+        });
+      } catch (_) {}
+    }
+    this.emit('buzzer');
+    this.emit('change');
+  }
+
+  resetTeamBuzzLock() {
+    clearTimeout(this._buzzerUnlockTimer);
+    this._buzzerUnlockTimer = null;
+    const ctx = this.teamBuzzer.contextKey;
+    this.teamBuzzer = { ...this.teamBuzzer, activeBuzz: null };
+    nearbySync.clearBuzzerEvent(ctx);
+    audioService.playUnlock();
+    this.emit('buzzer');
+  }
+
+  // --- Global Cross-Room Team Leaderboard Aggregation ---
+
+  syncActiveArcadeRoom(payload) {
+    const res = nearbySync.upsertActiveArcadeRoom(payload);
+    this.nearbySnapshot = nearbySync.getSnapshot();
+    this.emit('team-leaderboard');
+    return res;
+  }
+
+  clearActiveArcadeRoom(roomId) {
+    nearbySync.removeActiveArcadeRoom(roomId);
+    this.nearbySnapshot = nearbySync.getSnapshot();
+    this.emit('team-leaderboard');
+  }
+
+  getGlobalTeamLeaderboard(limit = 5) {
+    const avatarToSquad = {
+      CORAL: 'squad_crimson',
+      INDIGO: 'squad_azure',
+      AMBER: 'squad_amber',
+      MINT: 'squad_mint'
+    };
+    const clubTeams = this.teams || [];
+    const battleTeams = this.getDefaultBattleTeams();
+    const teamMap = new Map();
+    const myTeamId = this.profile?.teamId || this.selectedTeamId || '';
+
+    const ensureTeam = (id, fallbackMeta = {}) => {
+      if (!id) return null;
+      if (!teamMap.has(id)) {
+        teamMap.set(id, {
+          id,
+          name: fallbackMeta.name || 'Squad',
+          accentColor: fallbackMeta.accentColor || 'INDIGO',
+          motto: fallbackMeta.motto || 'Active Squad',
+          memberCount: fallbackMeta.memberCount || 1,
+          clubPoints: 0,
+          liveRoomPoints: 0,
+          totalPoints: 0,
+          activeRoomIds: new Set(),
+          gamesCount: 0,
+          isMine: id === myTeamId
+        });
+      }
+      return teamMap.get(id);
+    };
+
+    [...clubTeams, ...battleTeams].forEach((t) => {
+      if (!t?.id) return;
+      const entry = ensureTeam(t.id, t);
+      if (t.name) entry.name = t.name;
+      if (t.accentColor) entry.accentColor = t.accentColor;
+      if (t.motto) entry.motto = t.motto;
+      entry.memberCount = Math.max(entry.memberCount || 1, Number(t.memberCount || 1));
+    });
+
+    // 1. Persisted club & contribution points + player XP
+    for (const entry of teamMap.values()) {
+      entry.clubPoints += Number(this.teamScoresMap?.[entry.id] || 0);
+      if (entry.id === myTeamId) {
+        entry.clubPoints += Number(this.profile?.xp || 0);
+      }
+      entry.gamesCount = (this.teamContributions || []).filter((c) => c.teamId === entry.id).length;
+    }
+
+    if (!this.isOfflineMode) {
+      (this.globalScores || []).forEach((s) => {
+        if (s?.teamId) {
+          const entry = ensureTeam(s.teamId, { name: s.teamName || 'Club Squad', accentColor: s.avatarColor || 'INDIGO' });
+          entry.clubPoints += Number(s.score || 0);
+        }
+      });
+    }
+
+    // 2. Active rooms aggregation
+    const snap = nearbySync.getSnapshot();
+    const activeRoomSummaries = [];
+    const seenQuizCodes = new Set();
+
+    // 2a. Local cross-tab Live Quiz rooms
+    Object.values(snap.rooms || {}).forEach((room) => {
+      if (!room?.roomCode) return;
+      seenQuizCodes.add(room.roomCode);
+      const roomKey = `quiz:${room.roomCode}`;
+      const players = Object.values(room.players || {});
+      let roomPts = 0;
+      players.forEach((pl) => {
+        const pts = Math.max(0, Number(pl.score || 0));
+        const resolvedId = pl.teamId || avatarToSquad[pl.avatarColor] || myTeamId || 'squad_azure';
+        const entry = ensureTeam(resolvedId, {
+          name: pl.teamName || undefined,
+          accentColor: pl.avatarColor || 'INDIGO'
+        });
+        if (entry) {
+          entry.liveRoomPoints += pts;
+          entry.activeRoomIds.add(roomKey);
+        }
+        roomPts += pts;
+      });
+      activeRoomSummaries.push({
+        id: roomKey,
+        kind: 'LIVE_QUIZ',
+        label: `⚡ PIN ${room.roomCode}`,
+        title: room.quizTitle || 'Live Quiz',
+        points: roomPts
+      });
+    });
+
+    // 2b. Cloud Live Quiz room currently active in this session
+    if (this.roomSession?.room && !seenQuizCodes.has(this.roomSession.roomCode)) {
+      const r = this.roomSession.room;
+      const roomKey = `quiz:${this.roomSession.roomCode}`;
+      let roomPts = 0;
+      (this.roomSession.players || []).forEach((pl) => {
+        const pts = Math.max(0, Number(pl.score || 0));
+        const isMe = pl.playerUid === this.currentUserId;
+        const resolvedId = (isMe && myTeamId) ? myTeamId : (avatarToSquad[pl.avatarColor] || 'squad_azure');
+        const entry = ensureTeam(resolvedId, { accentColor: pl.avatarColor || 'INDIGO' });
+        if (entry) {
+          entry.liveRoomPoints += pts;
+          entry.activeRoomIds.add(roomKey);
+        }
+        roomPts += pts;
+      });
+      activeRoomSummaries.push({
+        id: roomKey,
+        kind: 'LIVE_QUIZ',
+        label: `☁️ PIN ${this.roomSession.roomCode}`,
+        title: r.quizTitle || 'Cloud Live Quiz',
+        points: roomPts
+      });
+    }
+
+    // 2c. Active Arcade Team Play rooms across tabs
+    Object.values(snap.arcadeRooms || {}).forEach((ar) => {
+      if (!ar?.id) return;
+      const roomKey = `arcade:${ar.id}`;
+      let roomPts = 0;
+      Object.entries(ar.teamScores || {}).forEach(([tid, rawPts]) => {
+        const pts = Math.max(0, Number(rawPts || 0));
+        const meta = ar.teamMeta?.[tid] || {};
+        const entry = ensureTeam(tid, meta);
+        if (entry) {
+          entry.liveRoomPoints += pts;
+          entry.activeRoomIds.add(roomKey);
+        }
+        roomPts += pts;
+      });
+      activeRoomSummaries.push({
+        id: roomKey,
+        kind: 'ARCADE',
+        label: `🎮 ${ar.gameTitle || 'Arcade Match'}`,
+        title: ar.activeTeamName ? `Turn: ${ar.activeTeamName}` : 'Team Play',
+        points: roomPts
+      });
+    });
+
+    // 2d. Active Team Buzzer session scores
+    const buzzerEntries = Object.entries(this.teamBuzzer?.sessionScores || {}).filter(([, v]) => Number(v || 0) > 0);
+    if (buzzerEntries.length > 0 || this.teamBuzzer?.open) {
+      const buzzKey = `buzzer:${this.teamBuzzer.contextKey || 'global'}`;
+      let buzzPts = 0;
+      buzzerEntries.forEach(([tid, rawPts]) => {
+        const pts = Math.max(0, Number(rawPts || 0));
+        const meta = (this.teamBuzzer.teams || []).find((t) => t.id === tid) || {};
+        const entry = ensureTeam(tid, meta);
+        if (entry) {
+          entry.liveRoomPoints += pts;
+          entry.activeRoomIds.add(buzzKey);
+        }
+        buzzPts += pts;
+      });
+      activeRoomSummaries.push({
+        id: buzzKey,
+        kind: 'BUZZER',
+        label: '🚨 Team Buzzer',
+        title: this.teamBuzzer.title || 'Live Buzzer',
+        points: buzzPts
+      });
+    }
+
+    const allTeams = [...teamMap.values()]
+      .map((t) => ({
+        id: t.id,
+        name: t.name,
+        accentColor: t.accentColor,
+        motto: t.motto,
+        memberCount: t.memberCount,
+        clubPoints: t.clubPoints,
+        liveRoomPoints: t.liveRoomPoints,
+        totalPoints: t.clubPoints + t.liveRoomPoints,
+        activeRoomsCount: t.activeRoomIds.size,
+        gamesCount: t.gamesCount,
+        isMine: t.id === myTeamId
+      }))
+      .sort((a, b) => (b.totalPoints - a.totalPoints) || (b.liveRoomPoints - a.liveRoomPoints) || a.name.localeCompare(b.name));
+
+    const totalAggregatedPoints = allTeams.reduce((sum, t) => sum + t.totalPoints, 0);
+
+    return {
+      topTeams: allTeams.slice(0, Math.max(1, limit)),
+      allTeams,
+      totalActiveRooms: activeRoomSummaries.length,
+      activeRoomSummaries,
+      totalAggregatedPoints
+    };
   }
 }
 

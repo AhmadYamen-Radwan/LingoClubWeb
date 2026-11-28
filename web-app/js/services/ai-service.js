@@ -140,7 +140,58 @@ function isGeneralTopic(topic, quizMode, customPrompt = '') {
 function isArabicTopic(topic, quizMode, customPrompt = '') {
   if (quizMode === 'ARABIC') return true;
   const combined = `${topic || ''} ${customPrompt || ''}`;
-  return /[\u0600-\u06FF]/.test(combined) || /\b(arabic|nahw|saraf|balagha|hamza|عربي|نحو|إملاء)\b/i.test(combined);
+  return /[\u0600-\u06FF]/.test(combined) || /\b(arabic|عربي|عربية|جرائم|تحقيق|علوم|فضاء|تاريخ)\b/i.test(combined);
+}
+
+const PROMPT_HISTORY_KEY = 'lingoclub_v1_prompt_history';
+
+function buildPromptHistoryKey({ topic = '', customPrompt = '', quizMode = 'AUTO', cefrLevel = 'B1' }) {
+  const norm = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  return `${norm(topic)}::${norm(customPrompt)}::${norm(quizMode)}::${norm(cefrLevel)}`;
+}
+
+function readAllPromptHistory() {
+  try {
+    if (typeof localStorage === 'undefined') return {};
+    const raw = localStorage.getItem(PROMPT_HISTORY_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function readPromptHistory(historyKey) {
+  const all = readAllPromptHistory();
+  return Array.isArray(all[historyKey]) ? all[historyKey] : [];
+}
+
+function recordPromptHistory(historyKey, prompts = []) {
+  try {
+    if (typeof localStorage === 'undefined' || !historyKey) return;
+    const clean = (Array.isArray(prompts) ? prompts : [])
+      .map((p) => String(p || '').trim())
+      .filter(Boolean);
+    if (!clean.length) return;
+    const all = readAllPromptHistory();
+    const prev = Array.isArray(all[historyKey]) ? all[historyKey] : [];
+    const seen = new Set(prev.map((p) => p.toLowerCase()));
+    const merged = [...prev];
+    for (const p of clean) {
+      const k = p.toLowerCase();
+      if (!seen.has(k)) {
+        seen.add(k);
+        merged.push(p);
+      }
+    }
+    all[historyKey] = merged.slice(-120);
+    // Cap total stored prompt keys to 60 oldest-evicted
+    const keys = Object.keys(all);
+    if (keys.length > 60) {
+      keys.slice(0, keys.length - 60).forEach((k) => delete all[k]);
+    }
+    localStorage.setItem(PROMPT_HISTORY_KEY, JSON.stringify(all));
+  } catch (_) {}
 }
 
 function buildOfflineQuizDraft({
@@ -150,7 +201,8 @@ function buildOfflineQuizDraft({
   focusWords = [],
   quizMode = 'AUTO',
   difficulty = 'MEDIUM',
-  customPrompt = ''
+  customPrompt = '',
+  avoidPrompts = []
 }) {
   const cleanTopic = String(topic || 'General Knowledge & English').trim() || 'General Knowledge & English';
   const cleanCustom = String(customPrompt || '').trim();
@@ -187,31 +239,64 @@ function buildOfflineQuizDraft({
       .filter(Boolean)
   );
 
+  const blockedPrompts = new Set(
+    (Array.isArray(avoidPrompts) ? avoidPrompts : [])
+      .map((p) => String(p || '').trim().toLowerCase())
+      .filter(Boolean)
+  );
+
   const questions = [];
   const usedPrompts = new Set();
-  const pushUnique = (q) => {
+  const fallbackPool = [];
+  const pushUnique = (q, allowBlocked = false) => {
     const normalized = normalizeQuizQuestion(q, cefrLevel, difficulty);
-    if (!normalized.prompt || usedPrompts.has(normalized.prompt.toLowerCase())) return false;
-    usedPrompts.add(normalized.prompt.toLowerCase());
+    if (!normalized.prompt) return false;
+    const pKey = normalized.prompt.toLowerCase();
+    if (usedPrompts.has(pKey)) return false;
+    if (!allowBlocked && blockedPrompts.has(pKey)) {
+      if (fallbackPool.length < count * 2) fallbackPool.push(normalized);
+      return false;
+    }
+    usedPrompts.add(pKey);
     questions.push(normalized);
     return true;
   };
 
+  const topicTokens = searchBasis.split(/[^a-z0-9\u0600-\u06FF]+/).filter((t) => t.length >= 2);
+  const scoreKeywordHits = (text) => {
+    const low = String(text || '').toLowerCase();
+    let hits = 0;
+    for (const tok of topicTokens) {
+      if (low.includes(tok)) hits += 1;
+    }
+    return hits;
+  };
+
   // Arabic-first offline bank when quizMode is ARABIC or topic is Arabic
   if (preferArabic) {
-    const arPackQs = ARABIC_QUIZ_PACKS.flatMap((p) => p.questions || []);
+    const arPackQs = ARABIC_QUIZ_PACKS.flatMap((p) =>
+      (p.questions || []).map((q) => ({
+        ...q,
+        _score: scoreKeywordHits(`${p.title || ''} ${p.topic || ''} ${q.prompt || ''} ${q.tip || ''}`)
+      }))
+    );
     const arDuelQs = ARABIC_CRIME_SCIENCE_HISTORY_ROUNDS.map((r) => ({
       prompt: r.scenarioPrompt,
       options: r.options,
       correctIndex: r.oddIndex,
-      tip: r.explanation
+      tip: r.explanation,
+      _score: scoreKeywordHits(`${r.category || ''} ${r.scenarioPrompt || ''} ${r.explanation || ''}`)
     }));
-    for (const q of [...shuffleArray(arPackQs), ...shuffleArray(arDuelQs)]) {
+    const sortedArQs = shuffleArray([...arPackQs, ...arDuelQs]).sort((a, b) => (b._score || 0) - (a._score || 0));
+    for (const q of sortedArQs) {
       if (questions.length >= count) break;
       pushUnique(q);
     }
     // Synthesize additional Arabic Synonym / Antonym / Clue questions from ARABIC_ARCADE_WORDS
-    for (const item of shuffleArray(ARABIC_ARCADE_WORDS)) {
+    const sortedArWords = shuffleArray(ARABIC_ARCADE_WORDS).sort(
+      (a, b) => scoreKeywordHits(`${b.word} ${b.clue} ${b.category || ''}`) - scoreKeywordHits(`${a.word} ${a.clue} ${a.category || ''}`)
+    );
+    for (const item of sortedArWords) {
       if (questions.length >= count) break;
       const others = shuffleArray(ARABIC_ARCADE_WORDS.filter((x) => x.word !== item.word)).slice(0, 3);
       if (others.length < 3) continue;
@@ -236,33 +321,30 @@ function buildOfflineQuizDraft({
         prompt: `أي كلمة عربية تناسب الوصف: "${item.clue}"؟`,
         options: optsWord,
         correctIndex: Math.max(0, optsWord.indexOf(item.word)),
-        tip: `${item.word}: ${item.clue} (${item.englishHint})`
+        tip: `${item.word}: ${item.clue} — مرادف: ${item.synonym}`
       });
     }
   }
 
-  // General Knowledge & Curated Trivia Packs
-  const topicTokens = searchBasis.split(/[^a-z0-9\u0600-\u06FF]+/).filter((t) => t.length >= 2);
-  const matchedFacts = GENERAL_FACTS_BANK.filter((f) =>
-    topicTokens.some((tok) => f.topic.includes(tok) || f.prompt.toLowerCase().includes(tok))
-  );
-  const otherFacts = GENERAL_FACTS_BANK.filter((f) => !matchedFacts.includes(f));
+  // General Knowledge & Curated Trivia Packs (boosted by customPrompt + topic keywords)
+  const scoredFacts = GENERAL_FACTS_BANK.map((f) => ({
+    ...f,
+    _score: scoreKeywordHits(`${f.topic} ${f.prompt} ${f.tip || ''}`)
+  }));
+  const matchedFacts = shuffleArray(scoredFacts.filter((f) => f._score > 0)).sort((a, b) => b._score - a._score);
+  const otherFacts = scoredFacts.filter((f) => f._score === 0);
+
   const curatedPackQs = QUIZ_PACKS.flatMap((pack) =>
     (pack.questions || []).map((q) => ({
       ...q,
-      _packMatch: topicTokens.some(
-        (tok) =>
-          String(pack.title || '').toLowerCase().includes(tok) ||
-          String(pack.topic || '').toLowerCase().includes(tok) ||
-          String(q.prompt || '').toLowerCase().includes(tok)
-      )
+      _score: scoreKeywordHits(`${pack.title || ''} ${pack.topic || ''} ${q.prompt || ''} ${q.tip || ''}`)
     }))
   );
-  const matchedPackQs = curatedPackQs.filter((q) => q._packMatch);
-  const otherPackQs = curatedPackQs.filter((q) => !q._packMatch);
+  const matchedPackQs = shuffleArray(curatedPackQs.filter((q) => q._score > 0)).sort((a, b) => b._score - a._score);
+  const otherPackQs = curatedPackQs.filter((q) => q._score === 0);
 
   if (preferGeneral) {
-    for (const q of [...shuffleArray(matchedFacts), ...shuffleArray(matchedPackQs), ...shuffleArray(otherFacts), ...shuffleArray(otherPackQs)]) {
+    for (const q of [...matchedFacts, ...matchedPackQs, ...shuffleArray(otherFacts), ...shuffleArray(otherPackQs)]) {
       if (questions.length >= count) break;
       pushUnique(q);
     }
@@ -366,11 +448,20 @@ function buildOfflineQuizDraft({
     }
   }
 
+  // Graceful fallback only after exhausting unseen questions
+  if (questions.length < count && fallbackPool.length) {
+    for (const q of shuffleArray(fallbackPool)) {
+      if (questions.length >= count) break;
+      pushUnique(q, true);
+    }
+  }
+
   return {
     title: `${cleanTopic} (${cefrLevel})`.slice(0, 80),
     topic: cleanTopic.slice(0, 40),
     cefrLevel,
     difficulty,
+    customPrompt: cleanCustom,
     language: preferArabic ? 'AR' : 'EN',
     questions: questions.slice(0, count),
     source: 'OFFLINE'
@@ -441,11 +532,22 @@ export const aiService = {
     quizMode = 'AUTO',
     difficulty = 'MEDIUM',
     customPrompt = '',
+    avoidPrompts = [],
+    freshSet = false,
     onProgress = null
   }) {
     const cleanTopic = String(topic || (quizMode === 'ARABIC' ? 'اللغة العربية والثقافة العامة' : 'General Knowledge & English')).trim().slice(0, 80) || 'General Knowledge & English';
     const cleanCustom = String(customPrompt || '').trim().slice(0, 800);
     const count = Math.min(Math.max(Number(questionCount) || 10, 3), 60);
+    const historyKey = buildPromptHistoryKey({ topic: cleanTopic, customPrompt: cleanCustom, quizMode, cefrLevel });
+    const storedHistory = freshSet ? readPromptHistory(historyKey) : [];
+    const mergedAvoidPrompts = [
+      ...storedHistory,
+      ...(Array.isArray(avoidPrompts) ? avoidPrompts : [])
+    ]
+      .map((p) => String(p || '').trim())
+      .filter(Boolean);
+
     const cleanFocus = (Array.isArray(focusWords) ? focusWords : [])
       .map((w) => String(w || '').trim())
       .filter(Boolean);
@@ -460,7 +562,7 @@ export const aiService = {
           : 'Use balanced, engaging medium-difficulty questions.';
     const styleInstruction =
       quizMode === 'ARABIC'
-        ? `Write ALL questions, all 4 options, and tips in clear Arabic (العربية الفصحى) suitable for level ${cefrLevel}, covering "${cleanTopic}".`
+        ? `Write ALL questions, all 4 options, and tips in clear Arabic (العربية الفصحى) suitable for level ${cefrLevel}, covering "${cleanTopic}". Focus on engaging crime mysteries, science, space, history, and general facts—do NOT include Arabic grammar parsing (إعراب) or school dictation drills.`
         : quizMode === 'VOCAB'
           ? `Focus on English vocabulary, definitions, usage in sentences, and Arabic translations where helpful for CEFR ${cefrLevel}.`
           : quizMode === 'GENERAL'
@@ -472,7 +574,7 @@ export const aiService = {
     if (apiKey) {
       try {
         const collected = [];
-        const seenPrompts = new Set();
+        const seenPrompts = new Set(mergedAvoidPrompts.map((p) => p.toLowerCase()));
         let quizTitle = `${cleanTopic} (${cefrLevel})`;
         let resolvedTopic = cleanTopic;
 
@@ -488,8 +590,12 @@ export const aiService = {
               : `Generating ${count} questions with Gemini...`
           );
 
-          const avoidList = collected.length
-            ? ` Do NOT repeat these already-used questions: ${collected.slice(-20).map((q) => q.prompt).join(' | ').slice(0, 1200)}.`
+          const avoidSamples = [
+            ...mergedAvoidPrompts.slice(-20),
+            ...collected.slice(-20).map((q) => q.prompt)
+          ];
+          const avoidList = avoidSamples.length
+            ? ` Do NOT repeat these already-used questions: ${avoidSamples.join(' | ').slice(0, 1400)}.`
             : '';
 
           const prompt =
@@ -523,7 +629,8 @@ export const aiService = {
               focusWords: cleanFocus,
               quizMode,
               difficulty,
-              customPrompt: cleanCustom
+              customPrompt: cleanCustom,
+              avoidPrompts: [...mergedAvoidPrompts, ...collected.map((q) => q.prompt)]
             });
             for (const q of topUp.questions) {
               if (collected.length >= count) break;
@@ -535,13 +642,16 @@ export const aiService = {
             }
           }
 
+          const finalQuestions = collected.slice(0, count);
+          recordPromptHistory(historyKey, finalQuestions.map((q) => q.prompt));
           return {
             title: quizTitle.slice(0, 80),
             topic: resolvedTopic.slice(0, 40),
             cefrLevel,
             difficulty,
+            customPrompt: cleanCustom,
             language: quizMode === 'ARABIC' || isArabicTopic(cleanTopic, quizMode, cleanCustom) ? 'AR' : 'EN',
-            questions: collected.slice(0, count),
+            questions: finalQuestions,
             source: 'GEMINI'
           };
         }
@@ -550,15 +660,18 @@ export const aiService = {
       }
     }
 
-    return buildOfflineQuizDraft({
+    const offlineDraft = buildOfflineQuizDraft({
       topic: cleanTopic,
       cefrLevel,
       questionCount: count,
       focusWords: cleanFocus,
       quizMode,
       difficulty,
-      customPrompt: cleanCustom
+      customPrompt: cleanCustom,
+      avoidPrompts: mergedAvoidPrompts
     });
+    recordPromptHistory(historyKey, (offlineDraft.questions || []).map((q) => q.prompt));
+    return offlineDraft;
   },
 
   async generateRoleplay({ setting, cefrLevel = CefrLevel.B1, tone = 'Friendly' }) {

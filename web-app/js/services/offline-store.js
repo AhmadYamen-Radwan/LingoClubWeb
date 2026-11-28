@@ -11,6 +11,8 @@ const PREFIX = 'lingoclub_v1_';
 const SHARED_SCORES_KEY = `${PREFIX}shared_scores`;
 const SHARED_TEAMS_KEY = `${PREFIX}shared_teams`;
 const SHARED_MESSAGES_KEY = `${PREFIX}shared_messages`;
+const SHARED_TEAM_CONTRIBS_KEY = `${PREFIX}team_contributions`;
+const SHARED_TEAM_SCORES_KEY = `${PREFIX}team_scores`;
 const THEME_KEY = `${PREFIX}theme_mode`;
 const GEMINI_KEY = `${PREFIX}gemini_api_key`;
 const LAST_EXPLORER_NAME_KEY = `${PREFIX}explorer_name`;
@@ -220,17 +222,38 @@ export class OfflineStore {
     return readJson(this._k('custom_quizzes'), []);
   }
 
-  saveCustomQuiz({ title, topic, cefrLevel, questions }) {
+  saveCustomQuiz({ title, topic, cefrLevel, customPrompt = '', language = 'EN', questions }) {
     const list = this.loadCustomQuizzes();
     const item = {
       id: `offline_quiz_${Date.now().toString(36)}`,
       title: String(title || 'Custom Quiz').trim().slice(0, 80),
       topic: String(topic || 'English').trim().slice(0, 40),
       cefrLevel,
+      customPrompt: String(customPrompt || '').trim().slice(0, 400),
+      language: language === 'AR' ? 'AR' : 'EN',
       questions: (questions || []).slice(0, 60),
       createdAtMs: Date.now()
     };
     const next = [item, ...list];
+    writeJson(this._k('custom_quizzes'), next);
+    return next;
+  }
+
+  updateCustomQuiz(id, { title, topic, cefrLevel, customPrompt, language, questions }) {
+    const next = this.loadCustomQuizzes().map((q) =>
+      q.id === id
+        ? {
+            ...q,
+            ...(title !== undefined ? { title: String(title).trim().slice(0, 80) } : {}),
+            ...(topic !== undefined ? { topic: String(topic).trim().slice(0, 40) } : {}),
+            ...(cefrLevel !== undefined ? { cefrLevel } : {}),
+            ...(customPrompt !== undefined ? { customPrompt: String(customPrompt).trim().slice(0, 400) } : {}),
+            ...(language !== undefined ? { language: language === 'AR' ? 'AR' : 'EN' } : {}),
+            ...(questions !== undefined ? { questions: (questions || []).slice(0, 60) } : {}),
+            updatedAtMs: Date.now()
+          }
+        : q
+    );
     writeJson(this._k('custom_quizzes'), next);
     return next;
   }
@@ -311,13 +334,15 @@ export class OfflineStore {
     return readJson(SHARED_SCORES_KEY, []);
   }
 
-  publishScoreRecord({ playerName, quizTitle, cefrLevel, score, accuracyPct, streak, gameMode, avatarColor = 'INDIGO' }) {
+  publishScoreRecord({ playerName, quizTitle, cefrLevel, score, accuracyPct, streak, gameMode, avatarColor = 'INDIGO', teamId = '', teamName = '' }) {
     const list = this.loadScores();
     const entry = {
       id: `score_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       userId: this.userId,
       playerName: playerName || this.loadProfile().displayName,
       avatarColor,
+      teamId: String(teamId || '').trim(),
+      teamName: String(teamName || '').trim(),
       quizTitle: String(quizTitle || 'Quiz').slice(0, 100),
       cefrLevel,
       score: Math.max(0, Math.round(score)),
@@ -329,6 +354,47 @@ export class OfflineStore {
     const next = [...list, entry].sort((a, b) => b.score - a.score).slice(0, 100);
     writeJson(SHARED_SCORES_KEY, next);
     return next;
+  }
+
+  loadTeamContributions() {
+    return readJson(SHARED_TEAM_CONTRIBS_KEY, []);
+  }
+
+  loadTeamScoresMap() {
+    return readJson(SHARED_TEAM_SCORES_KEY, {});
+  }
+
+  recordTeamContribution({ teamId, teamName, playerName, avatarColor = 'INDIGO', title, gameMode = 'ARCADE_TEAM', points = 0, accuracyPct = 100, cefrLevel = 'B1' }) {
+    const cleanTeamId = String(teamId || '').trim();
+    const cleanPts = Math.round(Number(points || 0));
+    if (!cleanTeamId || cleanPts <= 0) {
+      return {
+        contributions: this.loadTeamContributions(),
+        teamScoresMap: this.loadTeamScoresMap()
+      };
+    }
+    const list = this.loadTeamContributions();
+    const entry = {
+      id: `tcontrib_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      teamId: cleanTeamId,
+      teamName: String(teamName || 'Squad').slice(0, 60),
+      userId: this.userId,
+      playerName: String(playerName || this.loadProfile().displayName || 'Player').slice(0, 50),
+      avatarColor,
+      title: String(title || 'Team Play').slice(0, 100),
+      gameMode: String(gameMode || 'ARCADE_TEAM').slice(0, 40),
+      points: cleanPts,
+      accuracyPct: Math.min(Math.max(0, Math.round(accuracyPct)), 100),
+      cefrLevel: cefrLevel || 'B1',
+      createdAtMs: Date.now()
+    };
+    const nextList = [entry, ...list].slice(0, 120);
+    writeJson(SHARED_TEAM_CONTRIBS_KEY, nextList);
+
+    const scoresMap = this.loadTeamScoresMap();
+    scoresMap[cleanTeamId] = Math.max(0, Number(scoresMap[cleanTeamId] || 0) + cleanPts);
+    writeJson(SHARED_TEAM_SCORES_KEY, scoresMap);
+    return { contributions: nextList, teamScoresMap: scoresMap };
   }
 
   loadTeams() {

@@ -472,3 +472,180 @@ export function triggerConfettiBurst() {
 
   requestAnimationFrame(tick);
 }
+
+export function createAnimatedWordStageCanvas({
+  word = '',
+  subLabel = '',
+  accentHex = '#563AE4',
+  combo = 0,
+  rtl = false,
+  height = 112
+} = {}) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'arcade-canvas-box';
+  wrapper.style.height = `${height}px`;
+
+  const canvas = document.createElement('canvas');
+  canvas.style.width = '100%';
+  canvas.style.height = '100%';
+  wrapper.appendChild(canvas);
+
+  const ctx = canvas.getContext('2d');
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const particles = Array.from({ length: 18 }, (_, i) => ({
+    x: ((i * 53) % 100) / 100,
+    y: ((i * 37) % 100) / 100,
+    r: 2 + (i % 4),
+    speed: 0.14 + (i % 5) * 0.05,
+    phase: i * 0.9
+  }));
+  const start = performance.now();
+
+  const draw = (now) => {
+    if (!wrapper.isConnected) return;
+    const rect = wrapper.getBoundingClientRect();
+    const w = Math.max(260, Math.round(rect.width || 360));
+    const h = height;
+    if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
+    }
+
+    const t = (now - start) / 1000;
+    const enter = Math.min(1, t / 0.28);
+    const scale = 0.88 + 0.12 * (1 - Math.pow(1 - enter, 3));
+
+    ctx.save();
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, w, h);
+
+    // Rich animated gradient backdrop
+    const grad = ctx.createLinearGradient(0, 0, w, h);
+    grad.addColorStop(0, '#1B1740');
+    grad.addColorStop(0.55, accentHex);
+    grad.addColorStop(1, '#102A43');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.roundRect(0, 0, w, h, 18);
+    ctx.fill();
+
+    // Floating energy particles
+    for (const p of particles) {
+      const px = ((p.x + t * p.speed * 0.18) % 1) * w;
+      const py = ((p.y + Math.sin(t * 2 + p.phase) * 0.06 + 1) % 1) * h;
+      ctx.fillStyle = `rgba(255, 255, 255, ${0.14 + 0.12 * Math.sin(t * 3 + p.phase)})`;
+      ctx.beginPath();
+      ctx.arc(px, py, p.r + (combo >= 3 ? 1.2 : 0), 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Pulsing concentric radar rings
+    const pulseR = 26 + Math.sin(t * 3.2) * 5;
+    ctx.strokeStyle = 'rgba(255,255,255,0.14)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(w / 2, h / 2, pulseR, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Word + subtitle
+    ctx.save();
+    ctx.translate(w / 2, h / 2 - (subLabel ? 8 : 0));
+    ctx.scale(scale, scale);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const fontSize = word.length > 18 ? 20 : word.length > 11 ? 24 : 30;
+    ctx.font = rtl
+      ? `800 ${fontSize}px "Noto Sans Arabic", Tahoma, sans-serif`
+      : `800 ${fontSize}px Outfit, sans-serif`;
+    ctx.shadowColor = 'rgba(0,0,0,0.35)';
+    ctx.shadowBlur = 10;
+    ctx.fillText(word, 0, 0, w - 32);
+    ctx.restore();
+
+    if (subLabel) {
+      ctx.fillStyle = 'rgba(255,255,255,0.88)';
+      ctx.font = rtl
+        ? '700 13px "Noto Sans Arabic", Tahoma, sans-serif'
+        : '700 13px "Plus Jakarta Sans", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(subLabel, w / 2, h - 18, w - 28);
+    }
+
+    if (combo >= 2) {
+      ctx.fillStyle = '#FBBF24';
+      ctx.font = '800 12px "JetBrains Mono", monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText(`🔥 ${combo}x COMBO`, w - 14, 22);
+    }
+
+    ctx.restore();
+    requestAnimationFrame(draw);
+  };
+
+  requestAnimationFrame(draw);
+  return wrapper;
+}
+
+export function createAnimatedVaultDialCanvas({ progress = 0, locked = true, unlocked = false, size = 96 } = {}) {
+  const canvas = document.createElement('canvas');
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = size * dpr;
+  canvas.height = size * dpr;
+  canvas.style.width = `${size}px`;
+  canvas.style.height = `${size}px`;
+
+  const ctx = canvas.getContext('2d');
+  const start = performance.now();
+
+  const draw = (now) => {
+    if (!canvas.isConnected) return;
+    const t = (now - start) / 1000;
+    ctx.save();
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, size, size);
+
+    const cx = size / 2;
+    const cy = size / 2;
+    const r = size * 0.4;
+
+    // Outer steel ring
+    ctx.fillStyle = unlocked ? '#0E9F6E' : locked ? '#1E293B' : '#DC2626';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Rotating combination ticks
+    const spin = unlocked ? t * 1.8 : t * 0.45 + progress * Math.PI;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(spin);
+    ctx.strokeStyle = 'rgba(255,255,255,0.65)';
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 12; i++) {
+      const ang = (i * Math.PI) / 6;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(ang) * (r * 0.68), Math.sin(ang) * (r * 0.68));
+      ctx.lineTo(Math.cos(ang) * (r * 0.88), Math.sin(ang) * (r * 0.88));
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Inner lock icon
+    ctx.fillStyle = '#FFFFFF';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 0.46, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.font = `${Math.round(size * 0.26)}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(unlocked ? '🔓' : '🔐', cx, cy + 1);
+
+    ctx.restore();
+    requestAnimationFrame(draw);
+  };
+
+  requestAnimationFrame(draw);
+  return canvas;
+}
+

@@ -9,26 +9,35 @@ const STATE_KEY = 'lingoclub_nearby_hub_state_v1';
 function readHubState() {
   try {
     const raw = localStorage.getItem(STATE_KEY);
-    if (!raw) return { squads: {}, rooms: {} };
+    if (!raw) return { squads: {}, rooms: {}, arcadeRooms: {}, buzzer: null };
     const parsed = JSON.parse(raw);
     return {
       squads: parsed.squads || {},
-      rooms: parsed.rooms || {}
+      rooms: parsed.rooms || {},
+      arcadeRooms: parsed.arcadeRooms || {},
+      buzzer: parsed.buzzer || null
     };
   } catch {
-    return { squads: {}, rooms: {} };
+    return { squads: {}, rooms: {}, arcadeRooms: {}, buzzer: null };
   }
 }
 
 function writeHubState(state) {
   try {
-    // Prune stale entries older than 6 hours
+    // Prune stale entries older than 6 hours (30 mins for arcadeRooms)
     const cutoff = Date.now() - 6 * 3600 * 1000;
+    const arcadeCutoff = Date.now() - 30 * 60 * 1000;
     for (const [id, sq] of Object.entries(state.squads || {})) {
       if ((sq.updatedAtMs || 0) < cutoff) delete state.squads[id];
     }
     for (const [code, rm] of Object.entries(state.rooms || {})) {
       if ((rm.updatedAtMs || 0) < cutoff) delete state.rooms[code];
+    }
+    for (const [aid, ar] of Object.entries(state.arcadeRooms || {})) {
+      if ((ar.updatedAtMs || 0) < arcadeCutoff) delete state.arcadeRooms[aid];
+    }
+    if (state.buzzer && (state.buzzer.updatedAtMs || 0) < Date.now() - 5 * 60 * 1000) {
+      state.buzzer = null;
     }
     localStorage.setItem(STATE_KEY, JSON.stringify(state));
   } catch (_) {}
@@ -80,8 +89,64 @@ class NearbySyncService {
     return {
       squads: Object.values(state.squads || {}).sort((a, b) => (b.updatedAtMs || 0) - (a.updatedAtMs || 0)),
       rooms: state.rooms || {},
+      arcadeRooms: state.arcadeRooms || {},
+      buzzer: state.buzzer || null,
       hostingSquadId: this.hostingSquadId
     };
+  }
+
+  // --- Active Arcade Game Rooms Aggregation ---
+
+  upsertActiveArcadeRoom({ roomId, gameMode, gameTitle, teamScores = {}, teamMeta = {}, activeTeamName = '' }) {
+    const id = String(roomId || '').trim();
+    if (!id) return null;
+    const state = readHubState();
+    state.arcadeRooms[id] = {
+      id,
+      gameMode: gameMode || 'ARCADE',
+      gameTitle: gameTitle || 'Arcade Battle',
+      teamScores: { ...teamScores },
+      teamMeta: { ...teamMeta },
+      activeTeamName,
+      tabId: this.tabId,
+      updatedAtMs: Date.now()
+    };
+    writeHubState(state);
+    this._broadcast({ type: 'ARCADE_ROOM_SYNC', roomId: id });
+    return state.arcadeRooms[id];
+  }
+
+  removeActiveArcadeRoom(roomId) {
+    const id = String(roomId || '').trim();
+    if (!id) return;
+    const state = readHubState();
+    if (state.arcadeRooms[id]) {
+      delete state.arcadeRooms[id];
+      writeHubState(state);
+      this._broadcast({ type: 'ARCADE_ROOM_SYNC', roomId: id });
+    }
+  }
+
+  // --- Cross-Tab Team Buzzer (5s Lockout) ---
+
+  sendBuzzerEvent(buzzPayload) {
+    const state = readHubState();
+    const buzz = buzzPayload
+      ? { ...buzzPayload, updatedAtMs: Date.now() }
+      : null;
+    state.buzzer = buzz;
+    writeHubState(state);
+    this._broadcast({ type: 'TEAM_BUZZER', buzz });
+    return buzz;
+  }
+
+  clearBuzzerEvent(contextKey = null) {
+    const state = readHubState();
+    if (!state.buzzer || !contextKey || state.buzzer.contextKey === contextKey) {
+      state.buzzer = null;
+      writeHubState(state);
+      this._broadcast({ type: 'TEAM_BUZZER', buzz: null, contextKey });
+    }
   }
 
   // --- Squad Discovery & Cross-Tab Chat ---
@@ -170,7 +235,7 @@ class NearbySyncService {
     return readHubState().rooms[clean] || null;
   }
 
-  joinLocalQuizRoom({ roomCode, playerUid, nickname, avatarColor }) {
+  joinLocalQuizRoom({ roomCode, playerUid, nickname, avatarColor, teamId = '', teamName = '' }) {
     const clean = String(roomCode || '').trim().toUpperCase();
     const state = readHubState();
     const room = state.rooms[clean];
@@ -184,6 +249,8 @@ class NearbySyncService {
         hostUid: room.hostUid,
         nickname: nickname || 'Explorer',
         avatarColor: avatarColor || 'INDIGO',
+        teamId: String(teamId || ''),
+        teamName: String(teamName || ''),
         score: 0,
         streak: 0,
         lastAnswerIndex: -1,
@@ -194,6 +261,8 @@ class NearbySyncService {
     } else {
       room.players[playerUid].nickname = nickname || room.players[playerUid].nickname;
       room.players[playerUid].avatarColor = avatarColor || room.players[playerUid].avatarColor;
+      if (teamId) room.players[playerUid].teamId = String(teamId);
+      if (teamName) room.players[playerUid].teamName = String(teamName);
     }
     room.updatedAtMs = Date.now();
     writeHubState(state);
