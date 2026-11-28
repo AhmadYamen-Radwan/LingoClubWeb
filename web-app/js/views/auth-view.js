@@ -149,7 +149,7 @@ export function renderAuthView({ navigate }) {
       'div',
       { className: 'card stack-md' },
       el('h2', { className: 'section-title' }, 'Cloud Sync & Multiplayer'),
-      el('p', { className: 'small muted', style: { margin: 0 } }, 'Sign in with Google to sync XP, custom decks, live Kahoot rooms, and Tutor progress across Android and Web.'),
+      el('p', { className: 'small muted', style: { margin: 0 } }, 'Sign in with Google to sync XP, custom decks, live Kahoot rooms, and squad scores across Android and Web.'),
       googleBtn,
       redirectBtn
     ),
@@ -157,7 +157,7 @@ export function renderAuthView({ navigate }) {
       'div',
       { className: 'card stack-md' },
       el('h2', { className: 'section-title' }, 'Instant Offline Explorer'),
-      el('p', { className: 'small muted', style: { margin: 0 } }, 'Use all 400 weekly words, 8 arcade games, 18,600+ word dictionary, audiobooks, flashcards, and cross-tab squad rooms immediately in this browser.'),
+      el('p', { className: 'small muted', style: { margin: 0 } }, 'Use all 400 weekly words, 18 animated games, 18,600+ word dictionary, audiobooks, flashcards, and cross-tab squad rooms immediately in this browser.'),
       el('label', { className: 'field-label' }, 'Explorer Display Name'),
       nameInput,
       offlineBtn

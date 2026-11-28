@@ -196,6 +196,7 @@ function recordPromptHistory(historyKey, prompts = []) {
 
 function buildOfflineQuizDraft({
   topic,
+  keywords = '',
   cefrLevel,
   questionCount,
   focusWords = [],
@@ -205,11 +206,12 @@ function buildOfflineQuizDraft({
   avoidPrompts = []
 }) {
   const cleanTopic = String(topic || 'General Knowledge & English').trim() || 'General Knowledge & English';
+  const cleanKeywords = String(Array.isArray(keywords) ? keywords.join(', ') : (keywords || '')).trim();
   const cleanCustom = String(customPrompt || '').trim();
-  const searchBasis = `${cleanTopic} ${cleanCustom}`.toLowerCase();
+  const searchBasis = `${cleanTopic} ${cleanKeywords} ${cleanCustom}`.toLowerCase();
   const count = Math.min(Math.max(Number(questionCount) || 10, 3), 60);
-  const preferGeneral = isGeneralTopic(cleanTopic, quizMode, cleanCustom);
-  const preferArabic = isArabicTopic(cleanTopic, quizMode, cleanCustom);
+  const preferGeneral = isGeneralTopic(`${cleanTopic} ${cleanKeywords}`, quizMode, cleanCustom);
+  const preferArabic = isArabicTopic(`${cleanTopic} ${cleanKeywords}`, quizMode, cleanCustom);
 
   const weeklyNormalized = WEEKLY_CURRICULUM.flatMap((w) => w.words || [])
     .map((w) => ({
@@ -526,6 +528,7 @@ function evaluateSpeechDeterministically({ targetScript, spokenTranscript, cefrL
 export const aiService = {
   async generateQuizDraft({
     topic,
+    keywords = '',
     cefrLevel = CefrLevel.B1,
     questionCount = 10,
     focusWords = [],
@@ -537,9 +540,10 @@ export const aiService = {
     onProgress = null
   }) {
     const cleanTopic = String(topic || (quizMode === 'ARABIC' ? 'اللغة العربية والثقافة العامة' : 'General Knowledge & English')).trim().slice(0, 80) || 'General Knowledge & English';
+    const cleanKeywords = String(Array.isArray(keywords) ? keywords.join(', ') : (keywords || '')).trim().slice(0, 300);
     const cleanCustom = String(customPrompt || '').trim().slice(0, 800);
     const count = Math.min(Math.max(Number(questionCount) || 10, 3), 60);
-    const historyKey = buildPromptHistoryKey({ topic: cleanTopic, customPrompt: cleanCustom, quizMode, cefrLevel });
+    const historyKey = buildPromptHistoryKey({ topic: `${cleanTopic} ${cleanKeywords}`, customPrompt: cleanCustom, quizMode, cefrLevel });
     const storedHistory = freshSet ? readPromptHistory(historyKey) : [];
     const mergedAvoidPrompts = [
       ...storedHistory,
@@ -548,12 +552,16 @@ export const aiService = {
       .map((p) => String(p || '').trim())
       .filter(Boolean);
 
-    const cleanFocus = (Array.isArray(focusWords) ? focusWords : [])
-      .map((w) => String(w || '').trim())
-      .filter(Boolean);
+    const kwTokens = cleanKeywords
+      ? cleanKeywords.split(/[,،;|]+/).map((s) => s.trim()).filter(Boolean)
+      : [];
+    const cleanFocus = [...new Set([
+      ...(Array.isArray(focusWords) ? focusWords : []).map((w) => String(w || '').trim()),
+      ...kwTokens
+    ])].filter(Boolean);
     const vocabHint = cleanFocus.length
-      ? ` Incorporate several of these vocabulary words naturally: ${cleanFocus.slice(0, 12).join(', ')}.`
-      : '';
+      ? ` Focus on these keywords/concepts and build plausible, realistic distractors around them: ${cleanFocus.slice(0, 15).join(', ')}.`
+      : ' Include 3 plausible, non-obvious distractors alongside each single correct answer.';
     const diffInstruction =
       difficulty === 'HARD'
         ? 'Make the questions challenging with subtle, plausible distractors (Hard difficulty).'
@@ -599,10 +607,10 @@ export const aiService = {
             : '';
 
           const prompt =
-            `Create an interactive Kahoot-style quiz on the topic "${cleanTopic}" with exactly ${batchTarget} distinct multiple-choice questions.${vocabHint} ` +
+            `Create an interactive Kahoot-style live quiz on the topic "${cleanTopic}" with exactly ${batchTarget} distinct multiple-choice questions.${vocabHint} ` +
             `${styleInstruction} ${diffInstruction}${customInstruction}${avoidList} ` +
             `Return strict JSON: {"title":"...","topic":"...","questions":[{"prompt":"...","options":["...","...","...","..."],"correctIndex":0,"tip":"..."}]}. ` +
-            `Keep each question clear and concise with 4 distinct options and a short helpful explanation in "tip".`;
+            `Each question must have 1 clearly correct answer and 3 convincing, distinct distractors, plus a short helpful explanation in "tip".`;
 
           const json = await callGeminiJson(prompt, 8192);
           if (json && Array.isArray(json.questions)) {
@@ -624,6 +632,7 @@ export const aiService = {
           if (collected.length < count) {
             const topUp = buildOfflineQuizDraft({
               topic: cleanTopic,
+              keywords: cleanKeywords,
               cefrLevel,
               questionCount: count,
               focusWords: cleanFocus,
@@ -650,7 +659,7 @@ export const aiService = {
             cefrLevel,
             difficulty,
             customPrompt: cleanCustom,
-            language: quizMode === 'ARABIC' || isArabicTopic(cleanTopic, quizMode, cleanCustom) ? 'AR' : 'EN',
+            language: quizMode === 'ARABIC' || isArabicTopic(`${cleanTopic} ${cleanKeywords}`, quizMode, cleanCustom) ? 'AR' : 'EN',
             questions: finalQuestions,
             source: 'GEMINI'
           };
@@ -662,6 +671,7 @@ export const aiService = {
 
     const offlineDraft = buildOfflineQuizDraft({
       topic: cleanTopic,
+      keywords: cleanKeywords,
       cefrLevel,
       questionCount: count,
       focusWords: cleanFocus,

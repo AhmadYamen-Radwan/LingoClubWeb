@@ -270,6 +270,35 @@ class NearbySyncService {
     return room;
   }
 
+  leaveLocalQuizRoom({ roomCode, playerUid, nickname }) {
+    const clean = String(roomCode || '').trim().toUpperCase();
+    if (!clean || !playerUid) return null;
+    const state = readHubState();
+    const room = state.rooms[clean];
+    if (!room) return null;
+    const removed = room.players?.[playerUid];
+    const cleanNick = String(nickname || removed?.nickname || 'A player').trim().slice(0, 40);
+    if (room.players && room.players[playerUid]) {
+      delete room.players[playerUid];
+    }
+    const leaveMsg = {
+      id: `rmsg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      roomCode: clean,
+      senderUid: playerUid,
+      senderName: cleanNick,
+      avatarColor: removed?.avatarColor || 'INDIGO',
+      hostSender: false,
+      messageType: 'REACTION',
+      text: `[LEAVE|${cleanNick}]`,
+      createdAtMs: Date.now()
+    };
+    room.messages = [...(room.messages || []), leaveMsg].slice(-80);
+    room.updatedAtMs = Date.now();
+    writeHubState(state);
+    this._broadcast({ type: 'ROOM_UPDATED', roomCode: clean, leftPlayer: cleanNick });
+    return room;
+  }
+
   submitLocalRoomAnswer({ roomCode, playerUid, questionIndex, selectedIndex, correct, pointsEarned, newScore, newStreak }) {
     const clean = String(roomCode || '').trim().toUpperCase();
     const state = readHubState();

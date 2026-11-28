@@ -23,8 +23,6 @@ export const FIREBASE_CONFIG = {
 };
 
 export const FIRESTORE_DATABASE_ID = 'ai-studio-android-lingoclu-71e68557-4bb9-459f-961e-8245a34f0a47';
-export const BOOTSTRAPPED_TUTOR_EMAIL = 'radwana423@gmail.com';
-export const DEFAULT_TEACHER_HUB_ID = 'hub_teacher_all';
 
 let sdkPromise = null;
 let sdk = null;
@@ -140,15 +138,6 @@ class FirebaseClient {
     return uid;
   }
 
-  isBootstrappedTutor() {
-    const u = this._currentUser;
-    return Boolean(
-      u &&
-      u.emailVerified &&
-      String(u.email || '').toLowerCase() === BOOTSTRAPPED_TUTOR_EMAIL
-    );
-  }
-
   async signInWithGoogle({ preferRedirect = false } = {}) {
     const { auth, authMod } = await ensureSdk();
     this.lastAuthError = '';
@@ -200,7 +189,7 @@ class FirebaseClient {
     const ref = fsMod.doc(db, 'users', uid);
     const snap = await fsMod.getDoc(ref);
     const today = Math.max(1, Math.min(100000, epochDayNow()));
-    const expectedRole = this.isBootstrappedTutor() ? 'TUTOR' : 'STUDENT';
+    const expectedRole = 'STUDENT';
     const safeName = String(displayName || 'Lingo Member').trim().slice(0, 50) || 'Lingo Member';
 
     if (!snap.exists()) {
@@ -241,7 +230,7 @@ class FirebaseClient {
       if (!Array.isArray(d.pinnedEvidenceIds)) patch.pinnedEvidenceIds = [];
       if (d.teamId == null) patch.teamId = '';
       if (d.teamName == null) patch.teamName = '';
-      if (d.accountRole !== expectedRole) patch.accountRole = expectedRole;
+      if (d.accountRole == null) patch.accountRole = expectedRole;
       if (d.tutorUid == null) patch.tutorUid = '';
       if (d.tutorName == null) patch.tutorName = '';
 
@@ -779,139 +768,31 @@ class FirebaseClient {
     await fsMod.deleteDoc(fsMod.doc(db, 'quiz_rooms', String(roomCode).trim().toUpperCase(), 'messages', sanitizeId(messageId)));
   }
 
-  // --- Tutor-Student Roster ---
-
-  async connectToTutor({ tutorUid, tutorLabel, profile, decksCount, recentSessions }) {
+  async leaveRoomPlayer({ roomCode, nickname }) {
     const { db, fsMod } = await ensureSdk();
     const uid = this.requireUid();
-    const cleanTutorUid = String(tutorUid || '').trim();
-    if (!/^[a-zA-Z0-9_-]{3,128}$/.test(cleanTutorUid)) {
-      throw new Error('Enter a valid Tutor Code (3–128 letters, numbers, - or _).');
-    }
-    const cleanTutorName = String(tutorLabel || 'My Tutor').trim().slice(0, 50) || 'My Tutor';
-    await fsMod.updateDoc(fsMod.doc(db, 'users', uid), {
-      tutorUid: cleanTutorUid,
-      tutorName: cleanTutorName,
-      updatedAt: fsMod.serverTimestamp()
-    });
-    const nextProfile = { ...(profile || { userId: uid }), tutorUid: cleanTutorUid, tutorName: cleanTutorName };
-    await this.syncStudentProgressToTutor({ profile: nextProfile, decksCount, recentSessions });
-  }
-
-  async disconnectFromTutor(previousTutorUid) {
-    const { db, fsMod } = await ensureSdk();
-    const uid = this.requireUid();
-    await fsMod.updateDoc(fsMod.doc(db, 'users', uid), {
-      tutorUid: '',
-      tutorName: '',
-      updatedAt: fsMod.serverTimestamp()
-    });
-    const cleanPrev = String(previousTutorUid || '').trim();
-    if (/^[a-zA-Z0-9_-]{1,128}$/.test(cleanPrev)) {
-      try {
-        await fsMod.deleteDoc(fsMod.doc(db, 'tutors', cleanPrev, 'students', uid));
-      } catch (_) {}
-    }
-  }
-
-  async syncStudentProgressToTutor({ profile, decksCount = 0, recentSessions = [] }) {
-    const { db, fsMod } = await ensureSdk();
-    const uid = this.requireUid();
-    const cleanTutorUid = String(profile?.tutorUid || '').trim();
-    if (!cleanTutorUid || !/^[a-zA-Z0-9_-]{1,128}$/.test(cleanTutorUid)) return;
-    const ref = fsMod.doc(db, 'tutors', cleanTutorUid, 'students', uid);
-    const snap = await fsMod.getDoc(ref);
-    const activities = (recentSessions || []).slice(0, 10).map((s) => ({
-      title: String(s.title || 'Activity').slice(0, 100),
-      activityType: s.activityType || 'QUIZ',
-      cefrLevel: s.cefrLevel || 'B1',
-      score: Math.min(Math.max(0, Number(s.score || 0)), 500000),
-      accuracyPct: Math.min(Math.max(0, Number(s.accuracyPct || 100)), 100),
-      wordsPracticed: Math.min(Math.max(0, Number(s.wordsPracticed || 0)), 200)
-    }));
-    const common = {
-      studentName: String(profile.displayName || 'Student').trim().slice(0, 50) || 'Student',
-      learningLevel: profile.learningLevel || 'B1',
-      xp: Math.min(Math.max(0, Number(profile.xp || 0)), 10000000),
-      streak: Math.min(Math.max(0, Number(profile.streak || 1)), 10000),
-      sessionsCompleted: Math.min(Math.max(0, Number(profile.sessionsCompleted || 0)), 10000),
-      weeklyWordsMastered: Math.min(Math.max(0, Number(profile.weeklyWordsMastered || 0)), 100000),
-      quizzesPlayed: Math.min(Math.max(0, Number(profile.quizzesPlayed || 0)), 100000),
-      quizzesHosted: Math.min(Math.max(0, Number(profile.quizzesHosted || 0)), 100000),
-      bestLiveQuizScore: Math.min(Math.max(0, Number(profile.bestLiveQuizScore || 0)), 500000),
-      cardsMastered: Math.min(Math.max(0, Number(profile.cardsMastered || 0)), 100000),
-      decksCreated: Math.min(Math.max(0, Number(decksCount || 0)), 1000),
-      audiobooksFinished: Math.min(Math.max(0, Number(profile.audiobooksFinished || 0)), 10000),
-      teamName: String(profile.teamName || '').trim().slice(0, 50),
-      earnedBadges: (profile.earnedBadges || []).slice(0, 30),
-      recentActivities: activities,
-      updatedAt: fsMod.serverTimestamp()
-    };
-    if (snap.exists()) {
-      await fsMod.updateDoc(ref, common);
-    } else {
-      await fsMod.setDoc(ref, {
-        studentUid: uid,
-        tutorUid: cleanTutorUid,
-        ...common,
-        createdAt: fsMod.serverTimestamp()
+    const clean = String(roomCode || '').trim().toUpperCase();
+    if (!/^[A-Z0-9]{6}$/.test(clean)) return;
+    const cleanNick = String(nickname || 'A player').trim().slice(0, 40) || 'A player';
+    try {
+      await fsMod.addDoc(fsMod.collection(db, 'quiz_rooms', clean, 'messages'), {
+        roomCode: clean,
+        senderUid: uid,
+        senderName: cleanNick.slice(0, 50),
+        avatarColor: 'INDIGO',
+        hostSender: false,
+        messageType: 'REACTION',
+        text: `[LEAVE|${cleanNick}]`,
+        createdAt: fsMod.serverTimestamp(),
+        updatedAt: fsMod.serverTimestamp()
       });
-    }
+    } catch (_) {}
+    try {
+      await fsMod.deleteDoc(fsMod.doc(db, 'quiz_rooms', clean, 'players', uid));
+    } catch (_) {}
   }
 
-  async observeLinkedStudents(tutorUid, onData, onError) {
-    const { db, fsMod } = await ensureSdk();
-    return fsMod.onSnapshot(
-      fsMod.collection(db, 'tutors', tutorUid, 'students'),
-      (snap) => onData(snap.docs.map(mapSnapshotDoc).sort((a, b) => (b.xp || 0) - (a.xp || 0))),
-      (err) => onError?.(err)
-    );
-  }
-
-  async observeBootstrappedStudents(onData, onError) {
-    if (!this.isBootstrappedTutor()) {
-      onData([]);
-      return () => {};
-    }
-    const { db, fsMod } = await ensureSdk();
-    const q = fsMod.query(fsMod.collection(db, 'users'), fsMod.where('accountRole', '==', 'STUDENT'));
-    return fsMod.onSnapshot(
-      q,
-      (snap) => onData(snap.docs.map(mapSnapshotDoc).sort((a, b) => (b.xp || 0) - (a.xp || 0))),
-      (err) => onError?.(err)
-    );
-  }
-
-  async observeDirectAssignedStudents(tutorUid, onData, onError) {
-    const { db, fsMod } = await ensureSdk();
-    const q = fsMod.query(fsMod.collection(db, 'users'), fsMod.where('tutorUid', '==', tutorUid));
-    return fsMod.onSnapshot(
-      q,
-      (snap) => onData(snap.docs.map(mapSnapshotDoc).sort((a, b) => (b.xp || 0) - (a.xp || 0))),
-      (err) => onError?.(err)
-    );
-  }
-
-  async fetchStudentDetailBundle(studentUid) {
-    const cleanUid = sanitizeId(studentUid);
-    if (!this.isBootstrappedTutor()) {
-      return { studentUid: cleanUid, sessions: [], weeklyProgress: [], customDecks: [] };
-    }
-    const { db, fsMod } = await ensureSdk();
-    const [sessionsSnap, weeklySnap, decksSnap] = await Promise.all([
-      fsMod.getDocs(fsMod.collection(db, 'users', cleanUid, 'session_history')),
-      fsMod.getDocs(fsMod.collection(db, 'users', cleanUid, 'weekly_progress')),
-      fsMod.getDocs(fsMod.collection(db, 'users', cleanUid, 'custom_decks'))
-    ]);
-    return {
-      studentUid: cleanUid,
-      sessions: sessionsSnap.docs.map(mapSnapshotDoc).sort((a, b) => b.createdAtMs - a.createdAtMs),
-      weeklyProgress: weeklySnap.docs.map(mapSnapshotDoc).sort((a, b) => a.weekNumber - b.weekNumber),
-      customDecks: decksSnap.docs.map(mapSnapshotDoc).sort((a, b) => b.createdAtMs - a.createdAtMs)
-    };
-  }
-
-  // --- Team Chat & Teacher Hub ---
+  // --- Team & Club Chat ---
 
   async observeTeams(onData, onError) {
     const { db, fsMod } = await ensureSdk();
@@ -919,45 +800,20 @@ class FirebaseClient {
     return fsMod.onSnapshot(
       q,
       (snap) => {
-        const list = snap.docs.map(mapSnapshotDoc).sort((a, b) => {
-          if (a.channelKind === 'TEACHER_HUB' && b.channelKind !== 'TEACHER_HUB') return -1;
-          if (b.channelKind === 'TEACHER_HUB' && a.channelKind !== 'TEACHER_HUB') return 1;
-          return (b.memberCount || 0) - (a.memberCount || 0);
-        });
+        const list = snap.docs
+          .map(mapSnapshotDoc)
+          .sort((a, b) => (b.memberCount || 0) - (a.memberCount || 0));
         onData(list);
       },
       (err) => onError?.(err)
     );
   }
 
-  async ensureDefaultTutorHubIfTutor(tutorDisplayName) {
-    if (!this.isBootstrappedTutor()) return;
-    const { db, fsMod } = await ensureSdk();
-    const uid = this.requireUid();
-    const ref = fsMod.doc(db, 'teams', DEFAULT_TEACHER_HUB_ID);
-    const snap = await fsMod.getDoc(ref);
-    if (!snap.exists()) {
-      await fsMod.setDoc(ref, {
-        visibility: 'CLUB',
-        name: 'Tutor <-> All Teams',
-        cefrLevel: CefrLevel.B2,
-        motto: 'Direct tutor announcements, speaking tips, and student Q&A',
-        accentColor: 'INDIGO',
-        leaderUid: uid,
-        leaderName: String(tutorDisplayName || 'Tutor').trim().slice(0, 50) || 'Tutor',
-        channelKind: 'TEACHER_HUB',
-        memberCount: 1,
-        createdAt: fsMod.serverTimestamp(),
-        updatedAt: fsMod.serverTimestamp()
-      });
-    }
-  }
-
-  async createTeam({ name, cefrLevel, motto, accentColor, channelKind, creatorName }) {
+  async createTeam({ name, cefrLevel, motto, accentColor, creatorName }) {
     const { db, fsMod } = await ensureSdk();
     const uid = this.requireUid();
     const cleanName = String(name || '').trim().slice(0, 50);
-    if (cleanName.length < 2) throw new Error('Team name must be at least 2 characters.');
+    if (cleanName.length < 2) throw new Error('Team or club name must be at least 2 characters.');
     const allowedColors = ['INDIGO', 'CORAL', 'AMBER', 'MINT', 'PURPLE'];
     const color = allowedColors.includes(accentColor) ? accentColor : 'INDIGO';
     const docRef = await fsMod.addDoc(fsMod.collection(db, 'teams'), {
@@ -967,19 +823,17 @@ class FirebaseClient {
       motto: String(motto || '').trim().slice(0, 120),
       accentColor: color,
       leaderUid: uid,
-      leaderName: String(creatorName || 'Team Lead').trim().slice(0, 50) || 'Team Lead',
-      channelKind: channelKind === 'TEACHER_HUB' ? 'TEACHER_HUB' : 'TEAM',
+      leaderName: String(creatorName || 'Squad Lead').trim().slice(0, 50) || 'Squad Lead',
+      channelKind: 'TEAM',
       memberCount: 1,
       createdAt: fsMod.serverTimestamp(),
       updatedAt: fsMod.serverTimestamp()
     });
-    if (channelKind !== 'TEACHER_HUB') {
-      await fsMod.updateDoc(fsMod.doc(db, 'users', uid), {
-        teamId: docRef.id,
-        teamName: cleanName,
-        updatedAt: fsMod.serverTimestamp()
-      });
-    }
+    await fsMod.updateDoc(fsMod.doc(db, 'users', uid), {
+      teamId: docRef.id,
+      teamName: cleanName,
+      updatedAt: fsMod.serverTimestamp()
+    });
     return docRef.id;
   }
 
@@ -994,22 +848,49 @@ class FirebaseClient {
       memberCount: Math.min(curCount + 1, 10000),
       updatedAt: fsMod.serverTimestamp()
     });
-    if (previousTeamId && previousTeamId !== DEFAULT_TEACHER_HUB_ID) {
+    if (previousTeamId) {
       try {
         const prevRef = fsMod.doc(db, 'teams', previousTeamId);
         const prevSnap = await fsMod.getDoc(prevRef);
         if (prevSnap.exists()) {
           const prevCount = Number(prevSnap.data()?.memberCount || 1);
-          await fsMod.updateDoc(prevRef, {
-            memberCount: Math.max(prevCount - 1, 0),
-            updatedAt: fsMod.serverTimestamp()
-          });
+          if (prevCount > 0) {
+            await fsMod.updateDoc(prevRef, {
+              memberCount: Math.max(prevCount - 1, 0),
+              updatedAt: fsMod.serverTimestamp()
+            });
+          }
         }
       } catch (_) {}
     }
     await fsMod.updateDoc(fsMod.doc(db, 'users', uid), {
       teamId: team.id,
       teamName: String(team.name || '').slice(0, 50),
+      updatedAt: fsMod.serverTimestamp()
+    });
+  }
+
+  async leaveTeam(teamId) {
+    const { db, fsMod } = await ensureSdk();
+    const uid = this.requireUid();
+    if (teamId) {
+      try {
+        const teamRef = fsMod.doc(db, 'teams', teamId);
+        const snap = await fsMod.getDoc(teamRef);
+        if (snap.exists()) {
+          const curCount = Number(snap.data()?.memberCount || 0);
+          if (curCount > 0) {
+            await fsMod.updateDoc(teamRef, {
+              memberCount: Math.max(curCount - 1, 0),
+              updatedAt: fsMod.serverTimestamp()
+            });
+          }
+        }
+      } catch (_) {}
+    }
+    await fsMod.updateDoc(fsMod.doc(db, 'users', uid), {
+      teamId: '',
+      teamName: '',
       updatedAt: fsMod.serverTimestamp()
     });
   }
@@ -1034,7 +915,7 @@ class FirebaseClient {
     );
   }
 
-  async sendTeamMessage({ teamId, senderName, senderTeamName, senderRole, text, pinned = false }) {
+  async sendTeamMessage({ teamId, senderName, senderTeamName, text, pinned = false }) {
     const { db, fsMod } = await ensureSdk();
     const uid = this.requireUid();
     const cleanId = sanitizeId(teamId);
@@ -1045,7 +926,7 @@ class FirebaseClient {
       senderUid: uid,
       senderName: String(senderName || 'Member').trim().slice(0, 50) || 'Member',
       senderTeamName: String(senderTeamName || '').trim().slice(0, 50),
-      senderRole: senderRole === 'TEACHER' ? 'TEACHER' : 'PLAYER',
+      senderRole: 'PLAYER',
       text: cleanText,
       pinned: Boolean(pinned),
       createdAt: fsMod.serverTimestamp(),

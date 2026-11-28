@@ -1,5 +1,5 @@
 // Quiz Arena View — Live Kahoot PIN Rooms, Solo Blitz, AI Generator (w/ Free Prompt & 3-60 Qs),
-// Student Difficulty & Bilingual English + Arabic Quiz Packs
+// Explorer Difficulty, CSV Export/Import & Bilingual English + Arabic Quiz Packs
 
 import {
   ActivityType,
@@ -17,9 +17,12 @@ import {
 import { ARABIC_QUIZ_PACKS, QUIZ_PACKS } from '../data/curated-content.js';
 import { aiService } from '../services/ai-service.js';
 import { audioService } from '../services/audio-service.js';
+import { downloadQuizCsv, parseKahootCsv } from '../services/csv-quiz.js';
 import { store } from '../store/app-store.js';
 import { createCefrBadge, openModal, closeModal } from '../components/ui-shared.js';
 import { createTrophyCanvas } from '../components/canvas-3d.js';
+import { createLiveQuizGeneratorComponent } from '../components/live-quiz-generator.js';
+import { createStickerBubbleNode, createStickerTray, parseStickerMessage } from '../components/stickers.js';
 
 const KAHOOT_SHAPES = ['▲', '◆', '●', '■'];
 const AVATAR_TAGS = ['INDIGO', 'CORAL', 'AMBER', 'MINT'];
@@ -28,6 +31,7 @@ let soloState = null; // { title, cefrLevel, difficulty, questions, index, score
 let roomTimerId = null;
 let quizLanguageFilter = 'ALL'; // 'ALL' | 'EN' | 'AR'
 let roomChatDraft = '';
+let roomStickerDrawerOpen = false;
 
 function isArabicText(str) {
   return /[\u0600-\u06FF]/.test(String(str || ''));
@@ -466,7 +470,7 @@ function openAiQuizGeneratorModal({ prefillQuiz = null } = {}) {
       el(
         'div',
         { className: 'grid-2' },
-        el('div', { className: 'stack-xs' }, el('label', { className: 'field-label' }, 'Student Level (CEFR)'), levelSelect),
+        el('div', { className: 'stack-xs' }, el('label', { className: 'field-label' }, 'CEFR Level'), levelSelect),
         el('div', { className: 'stack-xs' }, el('label', { className: 'field-label' }, 'Difficulty & Timer'), diffSelect)
       ),
       el('div', { className: 'stack-xs' }, el('label', { className: 'field-label' }, 'Language / Quiz Style'), modeSelect),
@@ -898,6 +902,61 @@ function buildLiveRoomStageNode(s, room) {
           room.status === RoomStatus.REVEAL && q.tip
             ? el('div', { className: `card card-soft-mint small ${isArabicText(q.tip) ? 'arabic-text' : ''}`, dir: isArabicText(q.tip) ? 'rtl' : 'ltr' }, `💡 ${q.tip}`)
             : null,
+          room.status === RoomStatus.REVEAL
+            ? (() => {
+                const rawStandings = players.length ? players : (room.leaderboard || []);
+                const topStandings = [...rawStandings]
+                  .sort((a, b) => (b.score || 0) - (a.score || 0))
+                  .slice(0, 5);
+                const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣'];
+                return el(
+                  'div',
+                  { id: 'live-reveal-standings', className: 'card stack-sm' },
+                  el(
+                    'div',
+                    { className: 'row-between' },
+                    el('strong', {}, `🏆 Standings After Question ${qIdx + 1}`),
+                    el('span', { className: 'xs muted' }, `${rawStandings.length} players`)
+                  ),
+                  topStandings.length === 0
+                    ? el('p', { className: 'xs muted', style: { margin: 0 } }, 'No player scores recorded yet for this round.')
+                    : el(
+                        'div',
+                        { className: 'stack-xs' },
+                        ...topStandings.map((entry, rIdx) => {
+                          const earnedRound = entry.lastAnsweredQuestion === qIdx && entry.lastAnswerCorrect && Number(entry.lastPointsEarned || 0) > 0;
+                          const isMe = entry.uid && entry.uid === store.currentUserId;
+                          return el(
+                            'div',
+                            {
+                              className: `row-between ${rIdx === 0 ? 'card-soft-amber' : isMe ? 'card-soft-primary' : ''}`,
+                              style: {
+                                padding: '8px 12px',
+                                borderRadius: 'var(--r-md)',
+                                background: rIdx === 0 || isMe ? undefined : 'var(--surface-variant)'
+                              }
+                            },
+                            el(
+                              'div',
+                              { className: 'row', style: { gap: '8px', minWidth: 0 } },
+                              el('span', { style: { fontSize: '1.1rem' } }, medals[rIdx] || `#${rIdx + 1}`),
+                              el('strong', { className: 'small', style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, `${entry.nickname || 'Player'}${isMe ? ' (You)' : ''}`),
+                              Number(entry.streak || 0) >= 2 ? el('span', { className: 'badge-pill card-soft-secondary xs' }, `🔥 ${entry.streak}x`) : null
+                            ),
+                            el(
+                              'div',
+                              { className: 'row', style: { gap: '8px', flexShrink: 0 } },
+                              earnedRound
+                                ? el('span', { className: 'badge-pill card-soft-mint mono' }, `+${entry.lastPointsEarned}`)
+                                : null,
+                              el('span', { className: 'mono small', style: { fontWeight: '800' } }, `${entry.score || 0} pts`)
+                            )
+                          );
+                        })
+                      )
+                );
+              })()
+            : null,
           s.isHost
             ? el(
                 'div',
@@ -945,13 +1004,26 @@ function buildLiveRoomStageNode(s, room) {
 }
 
 function buildLiveRoomMessagesNodes(roomMessages) {
-  return (roomMessages || []).slice(-10).map((m) => {
+  return (roomMessages || []).slice(-12).map((m) => {
     const raw = String(m.text || '');
     if (raw.startsWith('[BUZZ|') && raw.endsWith(']')) {
       const parts = raw.slice(6, -1).split('|');
       const teamName = parts[1] || 'Squad';
       const playerName = parts[2] || m.senderName || 'Player';
       return el('div', { className: 'small', style: { fontWeight: '700', color: 'var(--primary)' } }, `⚡ ${teamName} (${playerName}) buzzed in! (5s lock)`);
+    }
+    if (raw.startsWith('[LEAVE|') && raw.endsWith(']')) {
+      const leaver = raw.slice(7, -1).trim() || m.senderName || 'Player';
+      return el('div', { className: 'xs muted', style: { fontWeight: '700' } }, `👋 ${leaver} left the quiz room`);
+    }
+    const sticker = parseStickerMessage(raw);
+    if (sticker) {
+      return el(
+        'div',
+        { className: 'row', style: { gap: '8px', alignItems: 'center' } },
+        el('strong', { className: 'xs' }, `${m.senderName}:`),
+        createStickerBubbleNode(sticker)
+      );
     }
     return el('div', { className: `small ${isArabicText(raw) ? 'arabic-text' : ''}` }, el('strong', {}, `${m.senderName}: `), raw);
   });
@@ -1007,6 +1079,22 @@ function renderLiveRoomView() {
     }
   });
 
+  const roomStickerHost = el('div', { className: roomStickerDrawerOpen ? '' : 'hidden' });
+  const renderRoomStickers = () => {
+    clearEl(roomStickerHost);
+    if (!roomStickerDrawerOpen) {
+      roomStickerHost.classList.add('hidden');
+      return;
+    }
+    roomStickerHost.classList.remove('hidden');
+    roomStickerHost.appendChild(
+      createStickerTray({
+        onSelect: (encoded) => store.sendLiveRoomMessage(encoded, 'REACTION')
+      })
+    );
+  };
+  renderRoomStickers();
+
   const sendRoomChat = () => {
     const val = (msgInput.value || '').trim();
     if (!val) return;
@@ -1019,7 +1107,7 @@ function renderLiveRoomView() {
   const chatBox = el(
     'div',
     { className: 'card stack-sm' },
-    el('div', { className: 'row-between' }, el('strong', {}, '💬 Room Cheers & Chat'), el('span', { id: 'live-room-chat-count', className: 'xs muted' }, `${(s.roomMessages || []).length} messages`)),
+    el('div', { className: 'row-between' }, el('strong', {}, '💬 Room Cheers & Stickers'), el('span', { id: 'live-room-chat-count', className: 'xs muted' }, `${(s.roomMessages || []).length} messages`)),
     el(
       'div',
       { className: 'scroll-x' },
@@ -1029,9 +1117,10 @@ function renderLiveRoomView() {
     ),
     el(
       'div',
-      { id: 'live-room-chat-list', className: 'stack-xs', style: { maxHeight: '140px', overflowY: 'auto' } },
+      { id: 'live-room-chat-list', className: 'stack-xs', style: { maxHeight: '170px', overflowY: 'auto' } },
       ...buildLiveRoomMessagesNodes(s.roomMessages)
     ),
+    roomStickerHost,
     el(
       'form',
       {
@@ -1042,6 +1131,21 @@ function renderLiveRoomView() {
           sendRoomChat();
         }
       },
+      el(
+        'button',
+        {
+          type: 'button',
+          className: `btn ${roomStickerDrawerOpen ? 'btn-primary' : 'btn-soft'}`,
+          style: { minWidth: '48px', padding: '0 12px' },
+          title: 'Stickers',
+          onMouseDown: (e) => e.preventDefault(),
+          onClick: () => {
+            roomStickerDrawerOpen = !roomStickerDrawerOpen;
+            renderRoomStickers();
+          }
+        },
+        '🎭'
+      ),
       msgInput,
       el('button', { type: 'submit', className: 'btn btn-soft', onMouseDown: (e) => e.preventDefault() }, 'Send')
     )
@@ -1184,6 +1288,19 @@ export function renderQuizArenaView({ navigate }) {
             }
           },
           '🎙️ Host PIN'
+        ),
+        el(
+          'button',
+          {
+            type: 'button',
+            className: 'btn btn-outline small',
+            title: 'Export quiz as Kahoot CSV spreadsheet',
+            onClick: () => {
+              downloadQuizCsv({ ...pack, questions: scaledQuestions });
+              store.toast(`Exported "${pack.title}" as Kahoot CSV!`);
+            }
+          },
+          '📥 CSV'
         ),
         newSetBtn,
         isCustom
@@ -1337,16 +1454,45 @@ export function renderQuizArenaView({ navigate }) {
       )
     ),
 
-    // Studio Actions
-    el(
-      'div',
-      { className: 'grid-2' },
-      el('button', { type: 'button', className: 'btn btn-soft btn-full', onClick: () => openAiQuizGeneratorModal() }, '✨ Custom Quiz Prompt Studio'),
-      el('button', { type: 'button', className: 'btn btn-outline btn-full', onClick: openCreateCustomQuizModal }, '📝 Create Custom Quiz')
-    ),
+    // Live Topic & Keyword Gemini Quiz Generator
+    createLiveQuizGeneratorComponent({ onStartSoloBlitz: startSoloBlitz }),
+
+    // Studio Actions + Kahoot CSV Import
+    (() => {
+      const csvFileInput = el('input', {
+        type: 'file',
+        accept: '.csv,text/csv',
+        className: 'hidden',
+        onChange: async (e) => {
+          const file = e.target.files?.[0];
+          if (!file) return;
+          try {
+            const text = await file.text();
+            const parsed = parseKahootCsv(text, {
+              cefrLevel: store.profile?.learningLevel || 'B1',
+              title: file.name.replace(/\.csv$/i, '') || 'Imported CSV Quiz'
+            });
+            await store.saveCustomQuiz(parsed);
+            store.toast(`Imported "${parsed.title}" (${parsed.questions.length} Qs) from CSV!`);
+          } catch (err) {
+            store.toast(err?.message || 'Could not import CSV quiz.', 'error');
+          } finally {
+            csvFileInput.value = '';
+          }
+        }
+      });
+      return el(
+        'div',
+        { className: 'row-wrap' },
+        csvFileInput,
+        el('button', { type: 'button', className: 'btn btn-soft flex-1', onClick: () => openAiQuizGeneratorModal() }, '✨ Prompt Studio Modal'),
+        el('button', { type: 'button', className: 'btn btn-outline flex-1', onClick: openCreateCustomQuizModal }, '📝 Create Custom Quiz'),
+        el('button', { type: 'button', className: 'btn btn-outline flex-1', onClick: () => csvFileInput.click() }, '📤 Import CSV (Kahoot)')
+      );
+    })(),
 
     clubQuizzes.length
-      ? el('div', { className: 'stack-sm' }, el('h2', { className: 'section-title' }, '🎓 Official Club Quizzes'), el('div', { className: 'grid-2' }, ...clubQuizzes.map((c) => renderQuizPackCard(c, { isClub: true }))))
+      ? el('div', { className: 'stack-sm' }, el('h2', { className: 'section-title' }, '🌟 Official Club Quizzes'), el('div', { className: 'grid-2' }, ...clubQuizzes.map((c) => renderQuizPackCard(c, { isClub: true }))))
       : null,
 
     customQuizzes.length

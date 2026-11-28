@@ -18,7 +18,6 @@ import { renderTeamsView } from './js/views/teams-view.js';
 import { renderCurriculumView } from './js/views/curriculum-view.js';
 import { renderAudiobooksView } from './js/views/audiobooks-view.js';
 import { patchTeamChatView, renderTeamChatView } from './js/views/team-chat-view.js';
-import { renderTutorDashboardView } from './js/views/tutor-dashboard-view.js';
 import { renderProfileView } from './js/views/profile-view.js';
 import { renderPuzzlesView } from './js/views/puzzles-view.js';
 import { renderCardsView } from './js/views/cards-view.js';
@@ -36,7 +35,6 @@ const ROUTES = {
   curriculum: renderCurriculumView,
   audiobooks: renderAudiobooksView,
   chat: renderTeamChatView,
-  tutor: renderTutorDashboardView,
   profile: renderProfileView,
   puzzles: renderPuzzlesView,
   cards: renderCardsView,

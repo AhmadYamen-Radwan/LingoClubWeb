@@ -85,7 +85,7 @@ export function renderProfileView({ navigate }) {
               'div',
               { className: 'row-wrap' },
               createCefrBadge(p.learningLevel || 'B1'),
-              el('span', { className: 'badge-pill', style: { background: 'var(--surface-variant)' } }, store.isBootstrappedTutor ? '🎓 Tutor' : p.accountRole || 'STUDENT'),
+              el('span', { className: 'badge-pill', style: { background: 'var(--surface-variant)' } }, store.isOfflineMode ? '🧭 Club Explorer' : '☁️ Club Member'),
               p.teamName ? el('span', { className: 'badge-pill card-soft-primary' }, `💬 ${p.teamName}`) : null
             )
           )
@@ -105,7 +105,7 @@ export function renderProfileView({ navigate }) {
       el(
         'div',
         { className: 'stack-xs' },
-        el('div', { className: 'field-label' }, `Student CEFR Level (${CEFR_LABELS[activeLevel] || activeLevel})`),
+        el('div', { className: 'field-label' }, `CEFR Level (${CEFR_LABELS[activeLevel] || activeLevel})`),
         el(
           'div',
           { className: 'row-wrap' },

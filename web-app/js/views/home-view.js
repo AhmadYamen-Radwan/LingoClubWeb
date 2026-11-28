@@ -24,7 +24,7 @@ export function renderHomeView({ navigate }) {
   const modeTiles = [
     { route: 'quiz', icon: '⚡', title: 'Live Quiz Clash', sub: 'English & Arabic Quizzes, AI Free Prompt', bg: 'var(--primary-soft)', ink: 'var(--on-primary-soft)', tag: 'LIVE + AR' },
     { route: 'curriculum', icon: '📅', title: 'Weekly 200-Word Club', sub: 'Week 1 & 2 · 400 words', bg: 'var(--tertiary-soft)', ink: 'var(--on-tertiary-soft)', tag: 'CLUB' },
-    { route: 'arcade', icon: '🕵️', title: 'Interactive Arcade', sub: '10 EN Games + 6 Arabic Games (ألعاب عربية)', bg: 'var(--accent-soft)', ink: 'var(--on-accent-soft)', tag: '16 GAMES' },
+    { route: 'arcade', icon: '🕵️', title: 'Interactive Arcade', sub: '11 EN Games + 7 Arabic Games (ألعاب عربية)', bg: 'var(--accent-soft)', ink: 'var(--on-accent-soft)', tag: '18 GAMES' },
     { route: 'cards', icon: '🃏', title: 'Deck Studio', sub: '3D Flip & Custom Decks', bg: 'var(--secondary-soft)', ink: 'var(--on-secondary-soft)', tag: '3D' },
     { route: 'puzzles', icon: '🧩', title: 'Word Forge Puzzles', sub: 'Scramble, Match, Cloze', bg: 'var(--sky-soft)', ink: 'var(--on-sky-soft)', tag: 'BRAIN' },
     { route: 'roleplay', icon: '🎭', title: 'Roleplay Stage', sub: 'AI Scenes & Voice Coach', bg: 'var(--purple-soft)', ink: 'var(--on-purple-soft)', tag: 'VOICE' },
@@ -32,9 +32,8 @@ export function renderHomeView({ navigate }) {
     { route: 'guessing', icon: '🎲', title: 'Taboo & Act Party', sub: 'Forbidden Clues & Timer', bg: 'var(--secondary-soft)', ink: 'var(--on-secondary-soft)', tag: 'PARTY' },
     { route: 'dictionary', icon: '📘', title: 'Bilingual Dictionary', sub: '18,600+ EN↔AR Glossary', bg: 'var(--tertiary-soft)', ink: 'var(--on-tertiary-soft)', tag: '18.6K' },
     { route: 'leaderboard', icon: '🏆', title: 'Global Leaderboard', sub: 'Top 3 Podium & Ranks', bg: 'var(--accent-soft)', ink: 'var(--on-accent-soft)', tag: 'RANKS' },
-    { route: 'teams', icon: '🛡️', title: 'Teams & Kahoot Battle', sub: 'Squad Podium & Game Contributions', bg: 'var(--accent-soft)', ink: 'var(--on-accent-soft)', tag: 'TEAMS' },
-    { route: 'chat', icon: '💬', title: 'Team Chat & Squad', sub: 'Teacher Hub & Cross-Tab', bg: 'var(--primary-soft)', ink: 'var(--on-primary-soft)', tag: 'SQUAD' },
-    { route: 'tutor', icon: '🎓', title: 'Tutor Progress Portal', sub: 'Student Roster & Linking', bg: 'var(--sky-soft)', ink: 'var(--on-sky-soft)', tag: 'TUTOR' }
+    { route: 'teams', icon: '🛡️', title: 'Teams & Kahoot Battle', sub: 'Squad Podium & Leave/Join', bg: 'var(--accent-soft)', ink: 'var(--on-accent-soft)', tag: 'TEAMS' },
+    { route: 'chat', icon: '💬', title: 'Clubs & Squad Chat', sub: 'Stickers, Clubs & Nearby Chat', bg: 'var(--primary-soft)', ink: 'var(--on-primary-soft)', tag: 'SQUAD' }
   ];
 
   const heroCube = createLanguageCubeCanvas({
@@ -182,7 +181,7 @@ export function renderHomeView({ navigate }) {
       { className: 'card stack-sm' },
       el('div', { className: 'row-between', style: { flexWrap: 'wrap' } },
         el('div', { className: 'stack-xs' },
-          el('div', { className: 'small', style: { fontWeight: '700' } }, `My Student Level: ${CEFR_LABELS[activeLevel] || activeLevel}`),
+          el('div', { className: 'small', style: { fontWeight: '700' } }, `My CEFR Level: ${CEFR_LABELS[activeLevel] || activeLevel}`),
           el('div', { className: 'row-wrap' },
             ...CEFR_LEVELS.map((lvl) =>
               el('button', {

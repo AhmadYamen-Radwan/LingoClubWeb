@@ -212,7 +212,7 @@ export function renderCurriculumView({ navigate }) {
       return eng.includes(q) || String(w.arabic || '').includes(q);
     });
 
-  const teacherPacks = (store.clubContent || []).filter((c) => c.contentType === 'WEEKLY_PACK' && Number(c.weekNumber) === week.weekNumber);
+  const clubPacks = (store.clubContent || []).filter((c) => c.contentType === 'WEEKLY_PACK' && Number(c.weekNumber) === week.weekNumber);
   const weekCefr = week.cefrLevel || (week.weekNumber === 1 ? 'A1–B1' : 'B1–B2');
 
   return el(
@@ -335,13 +335,13 @@ export function renderCurriculumView({ navigate }) {
       )
     ),
 
-    // Teacher Bonus Packs
-    teacherPacks.length
+    // Club Bonus Packs
+    clubPacks.length
       ? el(
           'div',
           { className: 'card card-soft-amber stack-xs' },
-          el('strong', {}, `🎓 Teacher Bonus Pack: ${teacherPacks[0].title}`),
-          el('p', { className: 'small', style: { margin: 0 } }, teacherPacks[0].description)
+          el('strong', {}, `🌟 Club Bonus Pack: ${clubPacks[0].title}`),
+          el('p', { className: 'small', style: { margin: 0 } }, clubPacks[0].description)
         )
       : null,
 

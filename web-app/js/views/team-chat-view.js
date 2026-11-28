@@ -1,15 +1,16 @@
-// Team Chat, Teacher Hub & Cross-Tab Nearby Squad View
-// (1:1 port of TeamChatScreen.kt with BroadcastChannel cross-tab sync + persistent keyboard/draft preservation)
+// Clubs & Squad Chat View (Clubs, Teams, Cross-Tab Nearby Squad, Stickers & Desktop Split Pane)
 
 import { CEFR_LABELS, CEFR_LEVELS, clearEl, el } from '../models.js';
 import { ttsSpeaker } from '../services/speech-media.js';
 import { store } from '../store/app-store.js';
 import { closeModal, createCefrBadge, openModal } from '../components/ui-shared.js';
+import { createStickerBubbleNode, createStickerTray, parseStickerMessage } from '../components/stickers.js';
 
 let chatDraft = '';
+let stickerDrawerOpen = false;
 
 function openCreateTeamModal() {
-  const nameInput = el('input', { type: 'text', className: 'field', placeholder: 'Squad Name (e.g., B2 Night Owls)' });
+  const nameInput = el('input', { type: 'text', className: 'field', placeholder: 'Name (e.g., B2 Night Owls or Debate Club)' });
   const mottoInput = el('input', { type: 'text', className: 'field', placeholder: 'Motto (e.g., Speak English every day!)' });
   const levelSel = el(
     'select',
@@ -17,19 +18,22 @@ function openCreateTeamModal() {
     ...CEFR_LEVELS.map((l) => el('option', { value: l, selected: l === (store.profile?.learningLevel || 'B1') }, CEFR_LABELS[l] || l))
   );
   const colorSel = el('select', { className: 'field' }, ...['INDIGO', 'CORAL', 'AMBER', 'MINT', 'PURPLE'].map((c) => el('option', { value: c }, c)));
-  const hubCheck = el('input', { type: 'checkbox' });
+  const kindSel = el(
+    'select',
+    { className: 'field' },
+    el('option', { value: 'TEAM' }, '🛡️ Team Squad (Battle & Chat)'),
+    el('option', { value: 'CLUB' }, '🏛️ Open Club (Topic Lounge)')
+  );
 
   openModal({
-    title: '💬 Create New Team Squad',
+    title: '💬 Create Team or Club',
     content: el(
       'div',
       { className: 'stack-md' },
       nameInput,
       mottoInput,
       el('div', { className: 'grid-2' }, levelSel, colorSel),
-      store.isBootstrappedTutor || store.isOfflineMode
-        ? el('label', { className: 'row small' }, hubCheck, 'Make this a Teacher Announcement Hub')
-        : null,
+      el('div', { className: 'stack-xs' }, el('label', { className: 'field-label' }, 'Channel Type'), kindSel),
       el(
         'button',
         {
@@ -42,7 +46,7 @@ function openCreateTeamModal() {
                 cefrLevel: levelSel.value,
                 motto: mottoInput.value,
                 accentColor: colorSel.value,
-                isTeacherHub: hubCheck.checked
+                kind: kindSel.value
               });
               closeModal();
             } catch (err) {
@@ -50,7 +54,7 @@ function openCreateTeamModal() {
             }
           }
         },
-        'Create & Join Team'
+        'Create & Join Channel'
       )
     )
   });
@@ -62,10 +66,11 @@ function buildSidebarNodes(activeTeam) {
   const isHostingNearby = Boolean(nearby.hostingSquadId && activeTeam && nearby.hostingSquadId === activeTeam.id);
 
   return [
-    el('div', { className: 'row-between' }, el('strong', {}, `Channels (${teams.length})`), el('button', { type: 'button', className: 'btn btn-soft', onClick: openCreateTeamModal }, '+ New')),
+    el('div', { className: 'row-between' }, el('strong', {}, `Clubs & Teams (${teams.length})`), el('button', { type: 'button', className: 'btn btn-soft', onClick: openCreateTeamModal }, '+ New')),
     ...teams.map((t) => {
       const selected = activeTeam?.id === t.id;
       const isMember = store.profile?.teamId === t.id;
+      const isClub = t.channelKind === 'CLUB';
       return el(
         'div',
         {
@@ -73,17 +78,50 @@ function buildSidebarNodes(activeTeam) {
           style: { padding: '12px', cursor: 'pointer' },
           onClick: () => store.selectTeam(t.id)
         },
-        el('div', { className: 'row-between' }, el('strong', {}, `${t.channelKind === 'TEACHER_HUB' ? '🎓 ' : '💬 '}${t.name}`), createCefrBadge(t.cefrLevel || 'B1')),
+        el(
+          'div',
+          { className: 'row-between', style: { gap: '8px' } },
+          el('strong', { style: { overflowWrap: 'anywhere' } }, `${isClub ? '🏛️ ' : '💬 '}${t.name}`),
+          createCefrBadge(t.cefrLevel || 'B1')
+        ),
         t.motto ? el('div', { className: 'xs muted' }, t.motto) : null,
         el(
           'div',
-          { className: 'row-between xs' },
-          el('span', {}, `${t.memberCount || 1} members`),
-          !isMember && t.channelKind !== 'TEACHER_HUB'
-            ? el('button', { type: 'button', className: 'btn btn-outline', style: { minHeight: '34px', padding: '4px 10px', fontSize: '0.75rem' }, onClick: (e) => { e.stopPropagation(); store.joinTeam(t); } }, 'Join')
-            : isMember
-              ? el('span', { className: 'badge-pill card-soft-mint' }, 'Joined')
-              : null
+          { className: 'row-between xs', style: { gap: '6px' } },
+          el('span', {}, `${t.memberCount || 1} members · ${isClub ? 'Club' : 'Team'}`),
+          !isMember
+            ? el(
+                'button',
+                {
+                  type: 'button',
+                  className: 'btn btn-outline',
+                  style: { minHeight: '34px', padding: '4px 10px', fontSize: '0.75rem' },
+                  onClick: (e) => {
+                    e.stopPropagation();
+                    store.joinTeam(t);
+                  }
+                },
+                'Join'
+              )
+            : el(
+                'div',
+                { className: 'row', style: { gap: '4px' } },
+                el('span', { className: 'badge-pill card-soft-mint' }, 'Joined'),
+                el(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'btn btn-danger-soft',
+                    style: { minHeight: '32px', padding: '4px 8px', fontSize: '0.72rem' },
+                    title: isClub ? 'Leave this club' : 'Leave this team',
+                    onClick: (e) => {
+                      e.stopPropagation();
+                      store.leaveTeam(t);
+                    }
+                  },
+                  '🚪 Leave'
+                )
+              )
         )
       );
     }),
@@ -92,7 +130,7 @@ function buildSidebarNodes(activeTeam) {
       'div',
       { className: 'card card-soft-amber stack-sm' },
       el('strong', {}, '📡 Nearby Cross-Tab Squad'),
-      el('p', { className: 'xs', style: { margin: 0 } }, 'Broadcast your active team to other open browser tabs in this browser without internet!'),
+      el('p', { className: 'xs', style: { margin: 0 } }, 'Broadcast your active team or club to other open browser tabs in this browser without internet!'),
       el(
         'button',
         {
@@ -125,51 +163,96 @@ function buildHeaderNode(activeTeam) {
   if (!activeTeam) {
     return el('div', { className: 'card-title' }, 'Select a Channel');
   }
+  const isMember = store.profile?.teamId === activeTeam.id;
+  const isClub = activeTeam.channelKind === 'CLUB';
   return el(
     'div',
-    { className: 'row-between' },
-    el('div', { className: 'stack-xs' }, el('h2', { className: 'section-title' }, activeTeam.name), el('span', { className: 'xs muted' }, activeTeam.motto || 'Practice together in English')),
-    createCefrBadge(activeTeam.cefrLevel || 'B1')
+    { className: 'row-between', style: { flexWrap: 'wrap', gap: '8px' } },
+    el(
+      'div',
+      { className: 'stack-xs' },
+      el('h2', { className: 'section-title' }, `${isClub ? '🏛️ ' : '🛡️ '}${activeTeam.name}`),
+      el('span', { className: 'xs muted' }, activeTeam.motto || 'Practice together in English & Arabic')
+    ),
+    el(
+      'div',
+      { className: 'row', style: { gap: '6px' } },
+      createCefrBadge(activeTeam.cefrLevel || 'B1'),
+      isMember
+        ? el(
+            'button',
+            {
+              type: 'button',
+              className: 'btn btn-danger-soft',
+              style: { minHeight: '36px', padding: '4px 12px', fontSize: '0.8rem' },
+              onClick: () => store.leaveTeam(activeTeam)
+            },
+            isClub ? '🚪 Leave Club' : '🚪 Leave Team'
+          )
+        : el(
+            'button',
+            {
+              type: 'button',
+              className: 'btn btn-outline',
+              style: { minHeight: '36px', padding: '4px 12px', fontSize: '0.8rem' },
+              onClick: () => store.joinTeam(activeTeam)
+            },
+            isClub ? 'Join Club' : 'Join Team'
+          )
+    )
   );
 }
 
 function buildPinnedNode(pinnedMsgs) {
   if (!pinnedMsgs.length) return null;
+  const parsed = parseStickerMessage(pinnedMsgs[0].text);
   return el(
     'div',
     { className: 'card card-soft-amber stack-xs', style: { padding: '10px 14px' } },
     el('div', { className: 'xs', style: { fontWeight: '800' } }, '📌 PINNED NOTICE'),
-    el('div', { className: 'small' }, pinnedMsgs[0].text)
+    el('div', { className: 'small' }, parsed ? `${parsed.emoji} ${parsed.label}` : pinnedMsgs[0].text)
   );
 }
 
 function buildMessagesNodes(msgs, canModerate) {
   if (!msgs.length) {
-    return [el('p', { className: 'small muted', style: { textAlign: 'center', margin: '24px 0' } }, 'No messages yet. Tap a quick English or Arabic starter below!')];
+    return [el('p', { className: 'small muted', style: { textAlign: 'center', margin: '24px 0' } }, 'No messages yet. Tap a starter or send an animated sticker below!')];
   }
   return msgs.map((m) => {
     const mine = m.senderUid === store.currentUserId;
-    const isRtl = /[\u0600-\u06FF]/.test(m.text || '');
+    const sticker = parseStickerMessage(m.text);
+    const isRtl = !sticker && /[\u0600-\u06FF]/.test(m.text || '');
     return el(
       'div',
       { className: `chat-bubble ${mine ? 'mine' : ''} ${m.pinned ? 'pinned' : ''}` },
       el(
         'div',
         { className: 'row-between', style: { gap: '12px' } },
-        el('span', { className: 'xs', style: { fontWeight: '800' } }, `${m.senderRole === 'TEACHER' ? '🎓 ' : ''}${m.senderName}${m.senderTeamName ? ` · ${m.senderTeamName}` : ''}`),
+        el('span', { className: 'xs', style: { fontWeight: '800' } }, `${m.senderName}${m.senderTeamName ? ` · ${m.senderTeamName}` : ''}`),
         el(
           'div',
           { className: 'row', style: { gap: '2px' } },
-          el('button', { type: 'button', style: { background: 'none', border: 'none', cursor: 'pointer', minWidth: '32px', minHeight: '32px' }, title: 'Speak aloud', onClick: () => ttsSpeaker.speak(m.text) }, '🔊'),
+          el(
+            'button',
+            {
+              type: 'button',
+              style: { background: 'none', border: 'none', cursor: 'pointer', minWidth: '32px', minHeight: '32px' },
+              title: 'Speak aloud',
+              onClick: () => ttsSpeaker.speak(sticker ? sticker.label : m.text)
+            },
+            '🔊'
+          ),
           canModerate
             ? el('button', { type: 'button', style: { background: 'none', border: 'none', cursor: 'pointer', minWidth: '32px', minHeight: '32px' }, title: m.pinned ? 'Unpin' : 'Pin', onClick: () => store.toggleTeamMessagePin(m.id, !m.pinned) }, m.pinned ? '📍' : '📌')
             : null,
-          mine || store.isBootstrappedTutor
+          mine
             ? el('button', { type: 'button', style: { background: 'none', border: 'none', cursor: 'pointer', minWidth: '32px', minHeight: '32px' }, title: 'Delete', onClick: () => store.deleteTeamMessage(m.id) }, '🗑')
             : null
         )
       ),
-      el('div', { className: `small ${isRtl ? 'arabic-text' : ''}`, style: { marginTop: '3px' } }, m.text)
+      sticker
+        ? createStickerBubbleNode(sticker)
+        : el('div', { className: `small ${isRtl ? 'arabic-text' : ''}`, style: { marginTop: '3px' } }, m.text)
     );
   });
 }
@@ -182,7 +265,7 @@ export function patchTeamChatView() {
   const activeTeam = teams.find((t) => t.id === store.selectedTeamId) || teams[0];
   const msgs = store.chatMessages || [];
   const pinnedMsgs = msgs.filter((m) => m.pinned);
-  const canModerate = store.isBootstrappedTutor || activeTeam?.leaderUid === store.currentUserId;
+  const canModerate = activeTeam?.leaderUid === store.currentUserId;
 
   const sidebar = document.getElementById('team-chat-sidebar');
   if (sidebar) {
@@ -228,7 +311,7 @@ export function renderTeamChatView({ navigate }) {
   const activeTeam = teams.find((t) => t.id === store.selectedTeamId) || teams[0];
   const msgs = store.chatMessages || [];
   const pinnedMsgs = msgs.filter((m) => m.pinned);
-  const canModerate = store.isBootstrappedTutor || activeTeam?.leaderUid === store.currentUserId;
+  const canModerate = activeTeam?.leaderUid === store.currentUserId;
 
   const msgInput = el('input', {
     id: 'team-chat-msg-input',
@@ -259,6 +342,24 @@ export function renderTeamChatView({ navigate }) {
     ...buildMessagesNodes(msgs, canModerate)
   );
 
+  const stickerDrawerHost = el('div', { className: stickerDrawerOpen ? '' : 'hidden' });
+  const renderStickerDrawer = () => {
+    clearEl(stickerDrawerHost);
+    if (!stickerDrawerOpen) {
+      stickerDrawerHost.classList.add('hidden');
+      return;
+    }
+    stickerDrawerHost.classList.remove('hidden');
+    stickerDrawerHost.appendChild(
+      createStickerTray({
+        onSelect: async (encoded) => {
+          await store.sendTeamMessage(encoded);
+        }
+      })
+    );
+  };
+  renderStickerDrawer();
+
   setTimeout(() => {
     const box = document.getElementById('team-chat-messages-box');
     if (box) box.scrollTop = box.scrollHeight;
@@ -281,7 +382,7 @@ export function renderTeamChatView({ navigate }) {
 
   const chatPane = el(
     'div',
-    { className: 'card stack-md' },
+    { id: 'team-chat-pane', className: 'card stack-md' },
     headerContainer,
     pinnedContainer,
     messagesBox,
@@ -292,6 +393,7 @@ export function renderTeamChatView({ navigate }) {
         el('button', { type: 'button', className: 'chip', onClick: () => store.sendTeamMessage(st) }, st)
       )
     ),
+    stickerDrawerHost,
     el(
       'form',
       {
@@ -302,6 +404,22 @@ export function renderTeamChatView({ navigate }) {
           await sendMessage();
         }
       },
+      el(
+        'button',
+        {
+          type: 'button',
+          className: `btn ${stickerDrawerOpen ? 'btn-primary' : 'btn-soft'}`,
+          style: { minWidth: '48px', padding: '0 12px' },
+          title: 'Toggle animated stickers',
+          ariaLabel: 'Toggle stickers',
+          onMouseDown: (e) => e.preventDefault(),
+          onClick: () => {
+            stickerDrawerOpen = !stickerDrawerOpen;
+            renderStickerDrawer();
+          }
+        },
+        '🎭'
+      ),
       msgInput,
       el(
         'button',
@@ -318,7 +436,7 @@ export function renderTeamChatView({ navigate }) {
   return el(
     'div',
     { id: 'team-chat-shell', className: 'stack-lg' },
-    el('div', { className: 'row-between' }, el('h1', { className: 'display-title' }, '💬 Team Chat & Squad'), el('button', { type: 'button', className: 'btn btn-outline', onClick: () => navigate('home') }, '← Home')),
+    el('div', { className: 'row-between' }, el('h1', { className: 'display-title' }, '💬 Clubs & Squad Chat'), el('button', { type: 'button', className: 'btn btn-outline', onClick: () => navigate('home') }, '← Home')),
     el('div', { className: 'split-pane' }, teamsSidebar, chatPane)
   );
 }

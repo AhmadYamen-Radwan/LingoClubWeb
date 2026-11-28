@@ -172,7 +172,10 @@ export function renderTeamsView({ navigate }) {
                 store.emit('change');
               }
             },
-            el('div', { style: { fontSize: '2rem' } }, medals[idx] || '🏅'),
+            el('div', { className: 'row-between', style: { justifyContent: 'center', gap: '6px' } },
+              el('span', { style: { fontSize: '1.8rem' } }, medals[idx] || '🏅'),
+              el('span', { className: 'badge-pill', style: { background: 'var(--surface-variant)' } }, team.channelKind === 'CLUB' ? '🏛️ Club' : '🛡️ Team')
+            ),
             el('div', { className: 'card-title' }, team.name),
             el('div', { className: 'display-title mono', style: { fontSize: '1.4rem' } }, `${totalPts} pts`),
             el('div', { className: 'xs muted' }, `${memberCount} members · ${team.motto || 'Active Squad'}`),
@@ -189,9 +192,26 @@ export function renderTeamsView({ navigate }) {
                       store.emit('change');
                     }
                   },
-                  'Join Team'
+                  team.channelKind === 'CLUB' ? 'Join Club' : 'Join Team'
                 )
-              : el('span', { className: 'badge-pill card-soft-mint', style: { marginTop: '6px' } }, 'Your Team ✓')
+              : el(
+                  'div',
+                  { className: 'row-wrap', style: { justifyContent: 'center', gap: '6px', marginTop: '6px' } },
+                  el('span', { className: 'badge-pill card-soft-mint' }, team.channelKind === 'CLUB' ? 'Your Club ✓' : 'Your Team ✓'),
+                  el(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'btn btn-danger-soft',
+                      style: { minHeight: '34px', padding: '4px 10px', fontSize: '0.75rem' },
+                      onClick: async (e) => {
+                        e.stopPropagation();
+                        await store.leaveTeam(team);
+                      }
+                    },
+                    team.channelKind === 'CLUB' ? '🚪 Leave Club' : '🚪 Leave Team'
+                  )
+                )
           );
         })
       )
@@ -210,7 +230,23 @@ export function renderTeamsView({ navigate }) {
           el('h2', { className: 'section-title' }, `👥 ${selectedTeam.name} Roster & Contributions`),
           el('p', { className: 'small muted', style: { margin: 0 } }, selectedTeam.motto || 'Collaborative learning squad')
         ),
-        el('span', { className: 'badge-pill card-soft-primary' }, `${teamScoresMap[selectedTeam.id] || 0} Total Team Points`)
+        el(
+          'div',
+          { className: 'row-wrap', style: { gap: '8px' } },
+          el('span', { className: 'badge-pill card-soft-primary' }, `${teamScoresMap[selectedTeam.id] || 0} Total Team Points`),
+          selectedTeam.id === store.profile?.teamId
+            ? el(
+                'button',
+                {
+                  type: 'button',
+                  className: 'btn btn-danger-soft',
+                  style: { minHeight: '36px', padding: '6px 12px', fontSize: '0.8rem' },
+                  onClick: () => store.leaveTeam(selectedTeam)
+                },
+                selectedTeam.channelKind === 'CLUB' ? '🚪 Leave Club' : '🚪 Leave Team'
+              )
+            : null
+        )
       ),
 
       selectedMembers.length > 0
@@ -274,7 +310,7 @@ export function renderTeamsView({ navigate }) {
       el(
         'div',
         { className: 'row-wrap', style: { gap: '10px', marginTop: '8px' } },
-        el('button', { type: 'button', className: 'btn btn-primary', onClick: () => navigate('chat') }, '💬 Open Team Squad Chat'),
+        el('button', { type: 'button', className: 'btn btn-primary', onClick: () => navigate('chat') }, '🏛️ Clubs & Squads Chat'),
         el('button', { type: 'button', className: 'btn btn-outline', onClick: () => navigate('leaderboard') }, '🏆 Team Leaderboard')
       )
     )

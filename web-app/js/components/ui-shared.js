@@ -5,6 +5,7 @@ import { lookupGlossaryWord } from '../data/dictionary.js';
 import { ttsSpeaker } from '../services/speech-media.js';
 import { getSavedGeminiKey, setSavedGeminiKey } from '../services/offline-store.js';
 import { store } from '../store/app-store.js';
+import { createStickerBubbleNode, createStickerTray, parseStickerMessage } from './stickers.js';
 
 export function createCefrBadge(level) {
   const safe = CEFR_LEVELS.includes(level) ? level : 'B1';
@@ -308,17 +309,18 @@ export function openInGameSquadChatModal() {
     clearEl(listEl);
     const msgs = store.chatMessages || [];
     if (!msgs.length) {
-      listEl.appendChild(el('p', { className: 'small muted', style: { textAlign: 'center', margin: '16px 0' } }, 'No messages in your squad yet. Say hi!'));
+      listEl.appendChild(el('p', { className: 'small muted', style: { textAlign: 'center', margin: '16px 0' } }, 'No messages in your squad yet. Say hi or send a sticker!'));
       return;
     }
     msgs.slice(-25).forEach((m) => {
       const mine = m.senderUid === store.currentUserId;
+      const sticker = parseStickerMessage(m.text);
       listEl.appendChild(
         el(
           'div',
           { className: `chat-bubble ${mine ? 'mine' : ''}` },
           el('div', { className: 'xs', style: { fontWeight: '800' } }, m.senderName || 'Member'),
-          el('div', { className: 'small' }, m.text)
+          sticker ? createStickerBubbleNode(sticker) : el('div', { className: 'small' }, m.text)
         )
       );
     });
@@ -334,6 +336,23 @@ export function openInGameSquadChatModal() {
     )
   );
 
+  let drawerOpen = false;
+  const stickerHost = el('div', { className: 'hidden' });
+  const toggleStickers = () => {
+    drawerOpen = !drawerOpen;
+    clearEl(stickerHost);
+    if (!drawerOpen) {
+      stickerHost.classList.add('hidden');
+    } else {
+      stickerHost.classList.remove('hidden');
+      stickerHost.appendChild(
+        createStickerTray({
+          onSelect: (encoded) => store.sendTeamMessage(encoded)
+        })
+      );
+    }
+  };
+
   const input = el('input', { type: 'text', className: 'field flex-1', placeholder: 'Send a quick squad note...' });
   const sendQuickMsg = () => {
     const val = (input.value || '').trim();
@@ -342,6 +361,18 @@ export function openInGameSquadChatModal() {
     store.sendTeamMessage(val);
     input.focus({ preventScroll: true });
   };
+  const stickerToggleBtn = el(
+    'button',
+    {
+      type: 'button',
+      className: 'btn btn-soft',
+      style: { minWidth: '48px', padding: '0 12px' },
+      title: 'Stickers',
+      onMouseDown: (e) => e.preventDefault(),
+      onClick: toggleStickers
+    },
+    '🎭'
+  );
   const sendBtn = el(
     'button',
     {
@@ -356,6 +387,7 @@ export function openInGameSquadChatModal() {
     el('p', { className: 'small muted', style: { margin: 0 } }, `Active Channel: ${store.profile?.teamName || 'Club Squad'}`),
     listEl,
     quickRow,
+    stickerHost,
     el(
       'form',
       {
@@ -365,6 +397,7 @@ export function openInGameSquadChatModal() {
           sendQuickMsg();
         }
       },
+      stickerToggleBtn,
       input,
       sendBtn
     )

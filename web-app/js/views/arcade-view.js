@@ -27,7 +27,14 @@ const ARABIC_ALPHABET = [
   'ي', 'ى', 'ئ', 'ؤ'
 ];
 
-let activeMode = null; // 10 EN + 6 AR = 16 games
+function buildDetectiveLetterPool(targetStr, fullAlphabet, distractorCount = 6) {
+  const needed = [...new Set(Array.from(String(targetStr || '').trim()).filter((ch) => /\S/.test(ch)))];
+  const neededSet = new Set(needed);
+  const distractors = shuffleArray(fullAlphabet.filter((ch) => !neededSet.has(ch))).slice(0, distractorCount);
+  return shuffleArray([...needed, ...distractors]);
+}
+
+let activeMode = null; // 11 EN + 7 AR = 18 games
 let hubLang = 'ALL'; // 'ALL' | 'EN' | 'AR'
 let hubCategory = 'ALL';
 let playFormat = 'SOLO'; // 'SOLO' | 'TEAM'
@@ -171,6 +178,12 @@ function getCurrentGamePromptForBuzzer() {
   if ((activeMode === 'AR_BLITZ' || activeMode === 'AR_METEOR') && (g.cur?.target || g.waves?.[g.waveIdx])) {
     const item = g.cur || g.waves[g.waveIdx];
     return `${item.askAntonym ? 'ما ضد كلمة' : 'ما مرادف كلمة'} "${item.target.word}"؟ (${item.target.clue})`;
+  }
+  if (activeMode === 'BALLOON' && g.waves?.[g.waveIdx]) {
+    return `Pop Balloon: Translate "${g.waves[g.waveIdx].target.english}"`;
+  }
+  if (activeMode === 'AR_RUNNER' && g.rounds?.[g.roundIdx]) {
+    return g.rounds[g.roundIdx].scenarioPrompt;
   }
   if (activeMode === 'AR_MAZE' && g.currentQ) {
     return g.currentQ.scenarioPrompt;
@@ -431,14 +444,17 @@ async function finishDash() {
 
 function startWordDetective() {
   stopArcadeTimers();
-  initTeamSession();
+  initTeamSession('Word Detective');
   const diff = getDiffConfig();
   const pool = shuffleArray(getAllWordsPool().filter((w) => /^[a-zA-Z]{4,9}$/.test(w.english)));
   const wordObj = pool[0] || { english: 'evidence', arabic: 'دليل', exampleSentence: 'The detective found new evidence.', cefrLevel: 'B1' };
+  const targetUpper = wordObj.english.toUpperCase();
+  const letterPool = buildDetectiveLetterPool(targetUpper, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split(''), 6);
   gState = {
     diff,
     wordObj,
-    targetUpper: wordObj.english.toUpperCase(),
+    targetUpper,
+    letterPool,
     guessed: new Set(),
     wrongCount: 0,
     maxWrong: diff.detectiveLives,
@@ -703,14 +719,17 @@ function startArabicBlitz() {
 
 function startArabicDetective() {
   stopArcadeTimers();
-  initTeamSession();
+  initTeamSession('كاشف الكلمة العربية');
   const diff = getDiffConfig();
   const pool = shuffleArray(ARABIC_ARCADE_WORDS);
   const wordObj = pool[0] || ARABIC_ARCADE_WORDS[0];
+  const targetWord = wordObj.word.trim();
+  const letterPool = buildDetectiveLetterPool(targetWord, ARABIC_ALPHABET, 6);
   gState = {
     diff,
     wordObj,
-    targetWord: wordObj.word.trim(),
+    targetWord,
+    letterPool,
     guessed: new Set(),
     wrongCount: 0,
     maxWrong: diff.detectiveLives,
@@ -1352,7 +1371,7 @@ function renderDashGame() {
 
 function renderDetectiveGame() {
   const g = gState;
-  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+  const keypadLetters = g.letterPool || buildDetectiveLetterPool(g.targetUpper, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split(''), 6);
   const letters = g.targetUpper.split('');
 
   const revealOneLetter = () => {
@@ -1415,22 +1434,27 @@ function renderDetectiveGame() {
         )
       : el(
           'div',
-          { className: 'alpha-pad' },
-          ...alphabet.map((ch) => {
-            const used = g.guessed.has(ch);
-            const hit = used && g.targetUpper.includes(ch);
-            const miss = used && !g.targetUpper.includes(ch);
-            return el(
-              'button',
-              {
-                type: 'button',
-                className: `alpha-key ${hit ? 'hit' : miss ? 'miss' : ''}`,
-                disabled: used,
-                onClick: () => handleEnglishDetectiveGuess(ch)
-              },
-              ch
-            );
-          })
+          { className: 'stack-xs' },
+          el('div', { className: 'xs muted', style: { textAlign: 'center' } }, `Filtered Suspect Pool: ${keypadLetters.length} letters (word letters + 6 decoys)`),
+          el(
+            'div',
+            { className: 'alpha-pad' },
+            ...keypadLetters.map((ch) => {
+              const used = g.guessed.has(ch);
+              const hit = used && g.targetUpper.includes(ch);
+              const miss = used && !g.targetUpper.includes(ch);
+              return el(
+                'button',
+                {
+                  type: 'button',
+                  className: `alpha-key ${hit ? 'hit' : miss ? 'miss' : ''}`,
+                  disabled: used,
+                  onClick: () => handleEnglishDetectiveGuess(ch)
+                },
+                ch
+              );
+            })
+          )
         )
   );
 }
@@ -2192,6 +2216,7 @@ function renderArabicBlitzGame() {
 
 function renderArabicDetectiveGame() {
   const g = gState;
+  const keypadLetters = g.letterPool || buildDetectiveLetterPool(g.targetWord, ARABIC_ALPHABET, 6);
   const letters = g.targetWord.split('');
 
   const revealArabicHint = () => {
@@ -2248,22 +2273,27 @@ function renderArabicDetectiveGame() {
         )
       : el(
           'div',
-          { className: 'alpha-pad', dir: 'rtl' },
-          ...ARABIC_ALPHABET.map((ch) => {
-            const used = g.guessed.has(ch);
-            const hit = used && g.targetWord.includes(ch);
-            const miss = used && !g.targetWord.includes(ch);
-            return el(
-              'button',
-              {
-                type: 'button',
-                className: `alpha-key arabic-text ${hit ? 'hit' : miss ? 'miss' : ''}`,
-                disabled: used,
-                onClick: () => handleArabicDetectiveGuess(ch)
-              },
-              ch
-            );
-          })
+          { className: 'stack-xs' },
+          el('div', { className: 'xs muted arabic-text', dir: 'rtl', style: { textAlign: 'center' } }, `مجموعة الأحرف المحددة: ${keypadLetters.length} حرفاً (أحرف الكلمة + 6 أحرف للتمويه)`),
+          el(
+            'div',
+            { className: 'alpha-pad', dir: 'rtl' },
+            ...keypadLetters.map((ch) => {
+              const used = g.guessed.has(ch);
+              const hit = used && g.targetWord.includes(ch);
+              const miss = used && !g.targetWord.includes(ch);
+              return el(
+                'button',
+                {
+                  type: 'button',
+                  className: `alpha-key arabic-text ${hit ? 'hit' : miss ? 'miss' : ''}`,
+                  disabled: used,
+                  onClick: () => handleArabicDetectiveGuess(ch)
+                },
+                ch
+              );
+            })
+          )
         )
   );
 }
@@ -3014,6 +3044,601 @@ function renderArabicTreasureMazeGame() {
   );
 }
 
+// ---------------- 2 MORE 60FPS CANVAS ANIMATED GAMES (BALLOON POP EN + GALAXY RUNNER AR) ----------------
+
+function startBalloonPop() {
+  stopArcadeTimers();
+  initTeamSession('Balloon Pop Vocab');
+  const diff = getDiffConfig();
+  const pool = shuffleArray(getAllWordsPool());
+  const waves = Array.from({ length: 8 }, (_, idx) => {
+    const target = pool[idx % pool.length];
+    const distractors = shuffleArray(pool.filter((w) => w.english !== target.english)).slice(0, 3);
+    const opts = shuffleArray([target.arabic, ...distractors.map((d) => d.arabic)]);
+    return { target, opts, answer: target.arabic };
+  });
+  const riseSpeed = diff.id === 'HARD' ? 0.115 : diff.id === 'EASY' ? 0.055 : 0.082;
+  gState = {
+    diff,
+    waves,
+    waveIdx: 0,
+    hearts: 3,
+    score: 0,
+    combo: 0,
+    bestCombo: 0,
+    correct: 0,
+    balloonY: 0.78,
+    riseSpeed,
+    pops: [],
+    hitboxes: [],
+    finished: false
+  };
+  activeMode = 'BALLOON';
+  audioService.playTransition();
+  store.emit('change');
+}
+
+async function finishBalloonPop() {
+  const g = gState;
+  if (!g || g.finished) return;
+  stopArcadeTimers();
+  g.finished = true;
+  const acc = Math.round((g.correct / Math.max(1, g.waves.length)) * 100);
+  if (g.hearts > 0) store.confetti();
+  audioService.playCorrect();
+  commitTeamSessionContributions('Balloon Pop Vocab', 'B1');
+  await store.awardActivityProgress({
+    xpDelta: Math.round(Math.max(18, Math.round(g.score / 15)) * (g.diff?.xpMultiplier || 1)),
+    activityType: ActivityType.GAME,
+    title: 'Balloon Pop Vocab',
+    cefrLevel: 'B1',
+    score: g.score,
+    accuracyPct: acc,
+    wordsPracticed: Math.max(1, g.waveIdx),
+    durationMinutes: 1,
+    arcadePlayed: true,
+    highCombo: g.bestCombo,
+    publishLeaderboardMode: 'ARCADE',
+    skipAutoTeamContrib: playFormat === 'TEAM'
+  });
+  store.emit('change');
+}
+
+function handleBalloonPopShot(opt, xNorm = 0.5, yNorm = 0.5) {
+  const g = gState;
+  if (!g || g.finished) return;
+  const wave = g.waves[g.waveIdx];
+  if (!wave) return;
+
+  const isHit = opt === wave.answer;
+  const burstColor = isHit ? '#34D399' : '#FB7185';
+  for (let i = 0; i < 12; i++) {
+    const ang = (Math.PI * 2 * i) / 12;
+    g.pops.push({
+      x: xNorm,
+      y: yNorm,
+      vx: Math.cos(ang) * (0.28 + Math.random() * 0.35),
+      vy: Math.sin(ang) * (0.28 + Math.random() * 0.35),
+      life: 1,
+      color: burstColor
+    });
+  }
+
+  if (isHit) {
+    audioService.playCorrect();
+    g.combo += 1;
+    g.bestCombo = Math.max(g.bestCombo, g.combo);
+    g.correct += 1;
+    const pts = Math.round((85 + g.balloonY * 60 + Math.min(g.combo, 5) * 15));
+    g.score += pts;
+    addSquadPoints(pts);
+    store.toast(`🎈 Popped! +${pts} pts`);
+    rotateSquadTurn(true);
+  } else {
+    audioService.playIncorrect();
+    g.combo = 0;
+    g.hearts -= 1;
+    rotateSquadTurn(true);
+    store.toast(`Missed! Answer: ${wave.answer}`, 'error');
+  }
+
+  g.waveIdx += 1;
+  g.balloonY = 0.78;
+  if (g.hearts <= 0 || g.waveIdx >= g.waves.length) {
+    finishBalloonPop();
+  } else {
+    store.emit('change');
+  }
+}
+
+function renderBalloonPopGame() {
+  const g = gState;
+  if (g.finished) {
+    return el(
+      'div',
+      { className: 'card card-soft-mint stack-md', style: { textAlign: 'center', padding: '26px' } },
+      el('h2', { className: 'display-title' }, g.hearts > 0 ? '🎈 Balloon Sky Cleared!' : '🎈 Balloons Escaped!'),
+      el('div', { className: 'display-title mono' }, `${g.score} pts`),
+      el('p', { className: 'small' }, `${g.correct}/${g.waves.length} popped · Best Streak: ${g.bestCombo}x`),
+      renderTeamResultsCard(),
+      el('div', { className: 'row-between' }, el('button', { type: 'button', className: 'btn btn-outline', onClick: exitToHub }, 'Back to Arcade'), el('button', { type: 'button', className: 'btn btn-primary', onClick: startBalloonPop }, 'Play Again'))
+    );
+  }
+
+  const wave = g.waves[g.waveIdx];
+  const box = el('div', { className: 'arcade-canvas-box', style: { height: '250px', cursor: 'pointer' } });
+  const canvas = document.createElement('canvas');
+  canvas.style.width = '100%';
+  canvas.style.height = '100%';
+  box.appendChild(canvas);
+
+  canvas.addEventListener('click', (e) => {
+    if (!gState || gState.finished || activeMode !== 'BALLOON') return;
+    const rect = canvas.getBoundingClientRect();
+    const cx = e.clientX - rect.left;
+    const cy = e.clientY - rect.top;
+    const hit = (gState.hitboxes || []).find((hb) => Math.hypot(cx - hb.cx, cy - hb.cy) <= hb.rx + 10);
+    if (hit) {
+      handleBalloonPopShot(hit.opt, cx / Math.max(1, rect.width), cy / Math.max(1, rect.height));
+    }
+  });
+
+  if (activeArcadeRafId) cancelAnimationFrame(activeArcadeRafId);
+  let lastT = performance.now();
+  const balloonPalette = ['#E21B3C', '#1368CE', '#D89E00', '#26890C'];
+
+  const drawFrame = (now) => {
+    if (!canvas.isConnected || !gState || gState.finished || activeMode !== 'BALLOON') return;
+    const dt = Math.min(0.05, (now - lastT) / 1000);
+    lastT = now;
+
+    g.balloonY -= g.riseSpeed * dt;
+    if (g.balloonY <= 0.14) {
+      audioService.playIncorrect();
+      g.combo = 0;
+      g.hearts -= 1;
+      g.waveIdx += 1;
+      g.balloonY = 0.78;
+      rotateSquadTurn(true);
+      if (g.hearts <= 0 || g.waveIdx >= g.waves.length) {
+        finishBalloonPop();
+        return;
+      }
+      store.emit('change');
+      return;
+    }
+
+    g.pops = g.pops.filter((p) => { p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt * 2.2; return p.life > 0; });
+
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const rect = box.getBoundingClientRect();
+    const w = Math.max(280, Math.round(rect.width || 380));
+    const h = 250;
+    if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
+    }
+    const ctx = canvas.getContext('2d');
+    ctx.save();
+    ctx.scale(dpr, dpr);
+
+    // Animated sky gradient + clouds
+    const sky = ctx.createLinearGradient(0, 0, 0, h);
+    sky.addColorStop(0, '#0284C7');
+    sky.addColorStop(1, '#BAE6FD');
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, w, h);
+
+    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    for (let i = 0; i < 4; i++) {
+      const cx = ((now * 0.018 * (i % 2 === 0 ? 1 : 0.7) + i * 140) % (w + 100)) - 50;
+      const cy = 40 + (i % 3) * 52;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 22, 0, Math.PI * 2);
+      ctx.arc(cx + 18, cy - 6, 26, 0, Math.PI * 2);
+      ctx.arc(cx + 38, cy + 2, 20, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // 4 Bobbing Balloons
+    const hitboxes = [];
+    const colW = w / 4;
+    wave.opts.forEach((opt, idx) => {
+      const bx = colW * idx + colW / 2;
+      const bob = Math.sin(now * 0.004 + idx * 1.4) * 7;
+      const by = Math.max(46, Math.min(h - 46, g.balloonY * h + bob));
+      const rx = Math.min(44, colW * 0.42);
+      const ry = 36;
+      hitboxes.push({ cx: bx, cy: by, rx, opt });
+
+      // String
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(bx, by + ry);
+      ctx.quadraticCurveTo(bx + Math.sin(now * 0.006 + idx) * 6, by + ry + 18, bx, by + ry + 34);
+      ctx.stroke();
+
+      // Balloon body
+      ctx.fillStyle = balloonPalette[idx % 4];
+      ctx.beginPath();
+      ctx.ellipse(bx, by, rx, ry, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.65)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Highlight
+      ctx.fillStyle = 'rgba(255,255,255,0.3)';
+      ctx.beginPath();
+      ctx.ellipse(bx - rx * 0.35, by - ry * 0.35, rx * 0.2, ry * 0.28, -0.4, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Label inside balloon
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = '800 13px "Noto Sans Arabic", Tahoma, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(opt, bx, by - 3, rx * 1.75);
+      ctx.font = '800 11px "JetBrains Mono", monospace';
+      ctx.fillText(`[${idx + 1}]`, bx, by + 16);
+    });
+    g.hitboxes = hitboxes;
+
+    // Pop particles
+    for (const p of g.pops) {
+      ctx.fillStyle = p.color;
+      ctx.globalAlpha = Math.max(0, p.life);
+      ctx.beginPath();
+      ctx.arc(p.x * w, p.y * h, 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+    activeArcadeRafId = requestAnimationFrame(drawFrame);
+  };
+  activeArcadeRafId = requestAnimationFrame(drawFrame);
+
+  return el(
+    'div',
+    { className: 'stack-md' },
+    renderTeamPlayHud('Balloon Pop Vocab'),
+    el(
+      'div',
+      { className: 'row-between' },
+      el('span', { className: 'badge-pill card-soft-secondary mono' }, '❤️'.repeat(Math.max(0, g.hearts)) + '🖤'.repeat(Math.max(0, 3 - g.hearts))),
+      el('span', { className: 'badge-pill card-soft-primary mono' }, `Wave ${g.waveIdx + 1}/${g.waves.length}`),
+      el('span', { className: 'mono', style: { fontWeight: '800' } }, `Score: ${g.score} · 🔥${g.combo}x`)
+    ),
+    el(
+      'div',
+      { className: 'card card-soft-primary row-between' },
+      el('div', { className: 'stack-xs' },
+        el('div', { className: 'xs muted' }, 'Tap the matching balloon directly or press 1–4:'),
+        el('div', { className: 'display-title', style: { fontSize: '1.45rem' } }, wave.target.english)
+      ),
+      el('button', { type: 'button', className: 'btn-icon', ariaLabel: 'Pronounce word', onClick: () => ttsSpeaker.speak(wave.target.english) }, '🔊')
+    ),
+    box,
+    el(
+      'div',
+      { className: 'grid-2' },
+      ...wave.opts.map((opt, idx) =>
+        el(
+          'button',
+          {
+            type: 'button',
+            className: 'btn btn-outline arabic-text',
+            style: { minHeight: '56px', justifyContent: 'space-between' },
+            onClick: () => handleBalloonPopShot(opt, (idx + 0.5) / 4, g.balloonY)
+          },
+          el('span', { className: 'badge-pill card-soft-primary mono' }, `${idx + 1}`),
+          el('span', { className: 'flex-1', style: { textAlign: 'center' } }, opt)
+        )
+      )
+    )
+  );
+}
+
+function startArabicSpaceRunner() {
+  stopArcadeTimers();
+  initTeamSession('مطاردة المجرة السريعة');
+  const diff = getDiffConfig();
+  const rounds = shuffleArray(ARABIC_CRIME_SCIENCE_HISTORY_ROUNDS).slice(0, 8).map((r) => {
+    const answer = r.options[Number(r.oddIndex || 0)];
+    const wrongOpts = shuffleArray(r.options.filter((_, idx) => idx !== Number(r.oddIndex || 0))).slice(0, 2);
+    const laneOpts = shuffleArray([answer, ...wrongOpts]);
+    return {
+      ...r,
+      answer,
+      laneOpts
+    };
+  });
+  const speed = diff.id === 'HARD' ? 0.14 : diff.id === 'EASY' ? 0.07 : 0.1;
+  gState = {
+    diff,
+    rounds,
+    roundIdx: 0,
+    lane: 1,
+    shipLanePos: 1,
+    gateX: 0.96,
+    speed,
+    hearts: 3,
+    score: 0,
+    combo: 0,
+    bestCombo: 0,
+    correct: 0,
+    sparks: [],
+    finished: false
+  };
+  activeMode = 'AR_RUNNER';
+  audioService.playTransition();
+  store.emit('change');
+}
+
+async function finishArabicSpaceRunner() {
+  const g = gState;
+  if (!g || g.finished) return;
+  stopArcadeTimers();
+  g.finished = true;
+  const acc = Math.round((g.correct / Math.max(1, g.rounds.length)) * 100);
+  if (g.hearts > 0) store.confetti();
+  audioService.playCorrect();
+  commitTeamSessionContributions('مطاردة المجرة السريعة', 'B1');
+  await store.awardActivityProgress({
+    xpDelta: Math.round(Math.max(20, Math.round(g.score / 15)) * (g.diff?.xpMultiplier || 1)),
+    activityType: ActivityType.GAME,
+    title: 'مطاردة المجرة السريعة (Galaxy Runner)',
+    cefrLevel: 'B1',
+    score: g.score,
+    accuracyPct: acc,
+    wordsPracticed: Math.max(1, g.roundIdx),
+    durationMinutes: 1,
+    arcadePlayed: true,
+    highCombo: g.bestCombo,
+    publishLeaderboardMode: 'ARCADE',
+    skipAutoTeamContrib: playFormat === 'TEAM'
+  });
+  store.emit('change');
+}
+
+function evaluateArabicRunnerGate() {
+  const g = gState;
+  if (!g || g.finished) return;
+  const round = g.rounds[g.roundIdx];
+  if (!round) return;
+  const picked = round.laneOpts[g.lane];
+  const isRight = picked === round.answer;
+
+  const sparkColor = isRight ? '#34D399' : '#EF4444';
+  for (let i = 0; i < 12; i++) {
+    const ang = (Math.PI * 2 * i) / 12;
+    g.sparks.push({ x: 0.18, y: (g.lane + 0.5) / 3, vx: Math.cos(ang) * 0.32, vy: Math.sin(ang) * 0.32, life: 1, color: sparkColor });
+  }
+
+  if (isRight) {
+    audioService.playCorrect();
+    g.combo += 1;
+    g.bestCombo = Math.max(g.bestCombo, g.combo);
+    g.correct += 1;
+    const pts = 110 + Math.min(g.combo, 5) * 20;
+    g.score += pts;
+    addSquadPoints(pts);
+    store.toast(`🛸 عبور صحيح! +${pts} نقطة`);
+    rotateSquadTurn(true);
+  } else {
+    audioService.playIncorrect();
+    g.combo = 0;
+    g.hearts -= 1;
+    rotateSquadTurn(true);
+    store.toast(`الإجابة الصحيحة: ${round.answer}`, 'error');
+  }
+
+  g.roundIdx += 1;
+  g.gateX = 0.96;
+  if (g.hearts <= 0 || g.roundIdx >= g.rounds.length) {
+    finishArabicSpaceRunner();
+  } else {
+    store.emit('change');
+  }
+}
+
+function renderArabicSpaceRunnerGame() {
+  const g = gState;
+  if (g.finished) {
+    return el(
+      'div',
+      { className: `card ${g.hearts > 0 ? 'card-soft-mint' : 'card-soft-amber'} stack-md arabic-text`, dir: 'rtl', style: { textAlign: 'center', padding: '26px' } },
+      el('h2', { className: 'display-title' }, g.hearts > 0 ? '🛸 وصلت المركبة إلى خط النهاية!' : '🛸 نفدت دروع المركبة!'),
+      el('div', { className: 'display-title mono', dir: 'ltr' }, `${g.score} pts`),
+      el('p', { className: 'small' }, `${g.correct}/${g.rounds.length} بوابات صحيحة · أعلى سلسلة: ${g.bestCombo}x`),
+      renderTeamResultsCard(),
+      el('div', { className: 'row-between', dir: 'ltr' }, el('button', { type: 'button', className: 'btn btn-outline', onClick: exitToHub }, 'Back to Arcade'), el('button', { type: 'button', className: 'btn btn-primary', onClick: startArabicSpaceRunner }, 'العب مجدداً'))
+    );
+  }
+
+  const round = g.rounds[g.roundIdx];
+  const box = el('div', { className: 'arcade-canvas-box', style: { height: '240px', cursor: 'pointer' } });
+  const canvas = document.createElement('canvas');
+  canvas.style.width = '100%';
+  canvas.style.height = '100%';
+  box.appendChild(canvas);
+
+  canvas.addEventListener('click', (e) => {
+    if (!gState || gState.finished || activeMode !== 'AR_RUNNER') return;
+    const rect = canvas.getBoundingClientRect();
+    const yNorm = (e.clientY - rect.top) / Math.max(1, rect.height);
+    const tappedLane = Math.min(2, Math.max(0, Math.floor(yNorm * 3)));
+    gState.lane = tappedLane;
+    audioService.playClick();
+  });
+
+  if (activeArcadeRafId) cancelAnimationFrame(activeArcadeRafId);
+  let lastT = performance.now();
+
+  const drawFrame = (now) => {
+    if (!canvas.isConnected || !gState || gState.finished || activeMode !== 'AR_RUNNER') return;
+    const dt = Math.min(0.05, (now - lastT) / 1000);
+    lastT = now;
+
+    g.shipLanePos += (g.lane - g.shipLanePos) * Math.min(1, dt * 14);
+    g.gateX -= g.speed * dt;
+    if (g.gateX <= 0.21) {
+      evaluateArabicRunnerGate();
+      return;
+    }
+
+    g.sparks = g.sparks.filter((s) => { s.x += s.vx * dt; s.y += s.vy * dt; s.life -= dt * 2.2; return s.life > 0; });
+
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const rect = box.getBoundingClientRect();
+    const w = Math.max(280, Math.round(rect.width || 380));
+    const h = 240;
+    if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
+    }
+    const ctx = canvas.getContext('2d');
+    ctx.save();
+    ctx.scale(dpr, dpr);
+
+    // Galaxy backdrop + 3 lanes
+    const bg = ctx.createLinearGradient(0, 0, w, 0);
+    bg.addColorStop(0, '#090D1F');
+    bg.addColorStop(1, '#1E1B4B');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, w, h);
+
+    // Scrolling speed stars
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    for (let i = 0; i < 24; i++) {
+      const sx = ((w - ((now * 0.14 + i * 73) % (w + 40))) + w) % w;
+      const sy = ((i * 37) % (h - 16)) + 8;
+      ctx.fillRect(sx, sy, 4, 2);
+    }
+
+    const laneH = h / 3;
+    for (let l = 0; l < 3; l++) {
+      if (l === g.lane) {
+        ctx.fillStyle = 'rgba(86, 58, 228, 0.18)';
+        ctx.fillRect(0, l * laneH, w, laneH);
+      }
+      if (l > 0) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.16)';
+        ctx.setLineDash([8, 8]);
+        ctx.beginPath();
+        ctx.moveTo(0, l * laneH);
+        ctx.lineTo(w, l * laneH);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+
+    // Starship in current lane
+    const shipX = Math.round(w * 0.14);
+    const shipY = Math.round((g.shipLanePos + 0.5) * laneH);
+    ctx.fillStyle = '#F59E0B';
+    ctx.beginPath();
+    ctx.moveTo(shipX - 16, shipY);
+    ctx.lineTo(shipX - 30 - Math.sin(now * 0.03) * 6, shipY - 7);
+    ctx.lineTo(shipX - 30 - Math.sin(now * 0.03) * 6, shipY + 7);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = '#38BDF8';
+    ctx.beginPath();
+    ctx.moveTo(shipX + 20, shipY);
+    ctx.lineTo(shipX - 16, shipY - 14);
+    ctx.lineTo(shipX - 10, shipY);
+    ctx.lineTo(shipX - 16, shipY + 14);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // 3 Approaching Answer Gates
+    const gx = Math.round(g.gateX * w);
+    const gateW = Math.min(138, Math.max(94, Math.round(w * 0.3)));
+    round.laneOpts.forEach((opt, lIdx) => {
+      const gy = Math.round((lIdx + 0.5) * laneH);
+      const isSelected = g.lane === lIdx;
+      ctx.fillStyle = isSelected ? '#563AE4' : '#1F2937';
+      ctx.strokeStyle = isSelected ? '#34D399' : '#A855F7';
+      ctx.lineWidth = isSelected ? 3 : 2;
+      ctx.beginPath();
+      ctx.roundRect(gx - gateW / 2, gy - 22, gateW, 44, 12);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = '800 13px "Noto Sans Arabic", Tahoma, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(opt, gx, gy, gateW - 14);
+    });
+
+    for (const s of g.sparks) {
+      ctx.fillStyle = s.color;
+      ctx.globalAlpha = Math.max(0, s.life);
+      ctx.beginPath();
+      ctx.arc(s.x * w, s.y * h, 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+    activeArcadeRafId = requestAnimationFrame(drawFrame);
+  };
+  activeArcadeRafId = requestAnimationFrame(drawFrame);
+
+  return el(
+    'div',
+    { className: 'stack-md' },
+    renderTeamPlayHud('مطاردة المجرة السريعة'),
+    el(
+      'div',
+      { className: 'row-between' },
+      el('span', { className: 'badge-pill card-soft-secondary mono' }, '❤️'.repeat(Math.max(0, g.hearts)) + '🖤'.repeat(Math.max(0, 3 - g.hearts))),
+      el('span', { className: 'badge-pill card-soft-primary mono' }, `Wave ${g.roundIdx + 1}/${g.rounds.length}`),
+      el('span', { className: 'mono', style: { fontWeight: '800' } }, `Score: ${g.score} · 🔥${g.combo}x`)
+    ),
+    el(
+      'div',
+      { className: 'card card-soft-primary stack-xs arabic-text', dir: 'rtl', style: { textAlign: 'center' } },
+      el('div', { className: 'xs muted' }, 'اضغط على أي مسار في الشاشة أو اختر المسار 1–3 لتوجيه المركبة:'),
+      el('div', { className: 'card-title' }, round.scenarioPrompt)
+    ),
+    box,
+    el(
+      'div',
+      { className: 'row-wrap' },
+      ...round.laneOpts.map((opt, idx) =>
+        el(
+          'button',
+          {
+            type: 'button',
+            className: `btn flex-1 arabic-text ${g.lane === idx ? 'btn-primary' : 'btn-outline'}`,
+            onClick: () => {
+              g.lane = idx;
+              store.emit('change');
+            }
+          },
+          `مسار ${idx + 1}: ${opt}`
+        )
+      ),
+      el(
+        'button',
+        {
+          type: 'button',
+          className: 'btn btn-mint',
+          onClick: evaluateArabicRunnerGate
+        },
+        '⚡ اندفع الآن'
+      )
+    )
+  );
+}
+
 // ---------------- PHYSICAL KEYBOARD SUPPORT ----------------
 
 if (typeof document !== 'undefined') {
@@ -3029,10 +3654,18 @@ if (typeof document !== 'undefined') {
       if (k === 'ArrowLeft') { e.preventDefault(); stepArabicMaze(0, -1); return; }
       if (k === 'ArrowRight') { e.preventDefault(); stepArabicMaze(0, 1); return; }
     }
+    if (activeMode === 'AR_RUNNER') {
+      if (k === 'ArrowUp') { e.preventDefault(); gState.lane = Math.max(0, gState.lane - 1); store.emit('change'); return; }
+      if (k === 'ArrowDown') { e.preventDefault(); gState.lane = Math.min(2, gState.lane + 1); store.emit('change'); return; }
+      if (k === 'Enter' || k === ' ') { e.preventDefault(); evaluateArabicRunnerGate(); return; }
+      if (['1', '2', '3'].includes(k)) { gState.lane = Number(k) - 1; store.emit('change'); return; }
+    }
     if (['1', '2', '3', '4'].includes(k)) {
       const idx = Number(k) - 1;
       if (activeMode === 'DASH' && gState.cur?.opts?.[idx] && !gState.cur.hiddenIndices.has(idx)) {
         pickDashOption(gState.cur.opts[idx], gState.cur.target.arabic);
+      } else if (activeMode === 'BALLOON' && gState.waves?.[gState.waveIdx]?.opts?.[idx]) {
+        handleBalloonPopShot(gState.waves[gState.waveIdx].opts[idx], (idx + 0.5) / 4, gState.balloonY);
       } else if (activeMode === 'METEOR' && gState.waves?.[gState.waveIdx]?.opts?.[idx]) {
         handleMeteorShot(gState.waves[gState.waveIdx].opts[idx], false);
       } else if (activeMode === 'AR_METEOR' && gState.waves?.[gState.waveIdx]?.opts?.[idx]) {
@@ -3094,7 +3727,9 @@ if (typeof document !== 'undefined') {
     if (/^[a-zA-Z]$/.test(k)) {
       const upper = k.toUpperCase();
       if (activeMode === 'DETECTIVE') {
-        handleEnglishDetectiveGuess(upper);
+        if (!gState.letterPool || gState.letterPool.includes(upper)) {
+          handleEnglishDetectiveGuess(upper);
+        }
       } else if (activeMode === 'VAULT' && gState.currentInput.length < gState.target.length) {
         gState.currentInput += upper;
         store.emit('change');
@@ -3104,7 +3739,9 @@ if (typeof document !== 'undefined') {
 
     if (ARABIC_ALPHABET.includes(k)) {
       if (activeMode === 'AR_DETECTIVE') {
-        handleArabicDetectiveGuess(k);
+        if (!gState.letterPool || gState.letterPool.includes(k)) {
+          handleArabicDetectiveGuess(k);
+        }
       } else if (activeMode === 'AR_VAULT' && gState.currentInput.length < gState.target.length) {
         gState.currentInput += k;
         store.emit('change');
@@ -3132,6 +3769,7 @@ export function renderArcadeView({ navigate }) {
       DASH: '⚡ Word Dash Blitz',
       METEOR: '☄️ Meteor Word Defense',
       ROCKET: '🚀 Rocket Fuel Race',
+      BALLOON: '🎈 Balloon Pop Vocab',
       DETECTIVE: '🔍 Word Detective',
       CRIME: '🕵️ Crime Mystery',
       EVIDENCE: '📌 Evidence Board',
@@ -3141,6 +3779,7 @@ export function renderArcadeView({ navigate }) {
       WHEEL: '🎡 Daily Spin Wheel',
       AR_BLITZ: '⚡ سباق المعاني السريع',
       AR_METEOR: '☄️ دفاع النيازك الفضائي',
+      AR_RUNNER: '🛸 مطاردة المجرة السريعة',
       AR_MAZE: '🧭 متاهة الكنز والفضاء',
       AR_DETECTIVE: '🔍 كاشف الكلمة العربية',
       AR_VAULT: '🔐 خزنة الحروف العربية',
@@ -3150,6 +3789,7 @@ export function renderArcadeView({ navigate }) {
     if (activeMode === 'DASH') body = renderDashGame();
     else if (activeMode === 'METEOR') body = renderMeteorDefenseGame(false);
     else if (activeMode === 'ROCKET') body = renderRocketRaceGame();
+    else if (activeMode === 'BALLOON') body = renderBalloonPopGame();
     else if (activeMode === 'DETECTIVE') body = renderDetectiveGame();
     else if (activeMode === 'CRIME') body = renderCrimeMysteryGame();
     else if (activeMode === 'EVIDENCE') body = renderEvidenceBoardGame();
@@ -3159,6 +3799,7 @@ export function renderArcadeView({ navigate }) {
     else if (activeMode === 'WHEEL') body = renderSpinWheelGame();
     else if (activeMode === 'AR_BLITZ') body = renderArabicBlitzGame();
     else if (activeMode === 'AR_METEOR') body = renderMeteorDefenseGame(true);
+    else if (activeMode === 'AR_RUNNER') body = renderArabicSpaceRunnerGame();
     else if (activeMode === 'AR_MAZE') body = renderArabicTreasureMazeGame();
     else if (activeMode === 'AR_DETECTIVE') body = renderArabicDetectiveGame();
     else if (activeMode === 'AR_VAULT') body = renderArabicVaultGame();
@@ -3187,28 +3828,30 @@ export function renderArcadeView({ navigate }) {
   const activeDiffId = store.selectedDifficulty || 'MEDIUM';
 
   const games = [
+    { id: 'BALLOON', lang: 'EN', cat: 'BLITZ', icon: '🎈', title: 'Balloon Pop Vocab', desc: 'Animated rising sky balloons — tap right on the canvas to pop!', fn: startBalloonPop, bg: 'var(--sky-soft)', ink: 'var(--on-sky-soft)' },
     { id: 'METEOR', lang: 'EN', cat: 'BLITZ', icon: '☄️', title: 'Meteor Word Defense', desc: 'Animated laser turret: blast falling word meteors before impact!', fn: startMeteorDefense, bg: 'var(--secondary-soft)', ink: 'var(--on-secondary-soft)' },
     { id: 'ROCKET', lang: 'EN', cat: 'BLITZ', icon: '🚀', title: 'Rocket Fuel Race', desc: 'Animated squad starfield race to 1,000m on every right hit!', fn: startRocketRace, bg: 'var(--sky-soft)', ink: 'var(--on-sky-soft)' },
     { id: 'DASH', lang: 'EN', cat: 'BLITZ', icon: '⚡', title: 'Word Dash Blitz', desc: `${diff.dashDurationSec}s animated stage rapid fire with 50/50 & Freeze`, fn: startWordDash, bg: 'var(--primary-soft)', ink: 'var(--on-primary-soft)' },
-    { id: 'DETECTIVE', lang: 'EN', cat: 'DETECTIVE', icon: '🔍', title: 'Word Detective', desc: `Guess hidden words (${diff.detectiveLives} orbs) + Reveal Hint`, fn: startWordDetective, bg: 'var(--tertiary-soft)', ink: 'var(--on-tertiary-soft)' },
+    { id: 'DETECTIVE', lang: 'EN', cat: 'DETECTIVE', icon: '🔍', title: 'Word Detective', desc: `Guess hidden words (${diff.detectiveLives} orbs) with filtered decoy pool`, fn: startWordDetective, bg: 'var(--tertiary-soft)', ink: 'var(--on-tertiary-soft)' },
     { id: 'CRIME', lang: 'EN', cat: 'DETECTIVE', icon: '🕵️', title: 'Crime Mystery', desc: '8 interactive whodunits with suspect interrogation', fn: startCrimeMystery, bg: 'var(--secondary-soft)', ink: 'var(--on-secondary-soft)' },
     { id: 'EVIDENCE', lang: 'EN', cat: 'DETECTIVE', icon: '📌', title: 'Evidence Board', desc: 'Run Forensic Lab Scans & crack culprit connections', fn: startEvidenceBoard, bg: 'var(--accent-soft)', ink: 'var(--on-accent-soft)' },
     { id: 'VAULT', lang: 'EN', cat: 'MEMORY', icon: '🔐', title: 'Vault Codebreaker', desc: `${diff.vaultRows}-row animated dial cipher with keyboard & hints`, fn: startVaultCodebreaker, bg: 'var(--sky-soft)', ink: 'var(--on-sky-soft)' },
     { id: 'DUEL', lang: 'EN', cat: 'BLITZ', icon: '⚔️', title: 'Mystery Speed Duel', desc: `${diff.duelDurationSec}s odd-one-out squad duel`, fn: startSpeedDuel, bg: 'var(--purple-soft)', ink: 'var(--on-purple-soft)' },
     { id: 'MEMORY', lang: 'EN', cat: 'MEMORY', icon: '🃏', title: '3D Memory Flip', desc: '3×4 English–Arabic board (keep turn on match!)', fn: startMemoryFlip, bg: 'var(--blue-soft)', ink: 'var(--on-blue-soft)' },
     { id: 'WHEEL', lang: 'EN', cat: 'BLITZ', icon: '🎡', title: 'Daily Spin Wheel', desc: 'Spin for XP + interactive Bonus Word Challenge', fn: startSpinWheel, bg: 'var(--accent-soft)', ink: 'var(--on-accent-soft)' },
+    { id: 'AR_RUNNER', lang: 'AR', cat: 'BLITZ', icon: '🛸', title: 'مطاردة المجرة السريعة', desc: 'وجّه مركبة الفضاء عبر 3 مسارات لاختراق بوابات العلوم والجرائم', fn: startArabicSpaceRunner, bg: 'var(--purple-soft)', ink: 'var(--on-purple-soft)' },
     { id: 'AR_METEOR', lang: 'AR', cat: 'BLITZ', icon: '☄️', title: 'دفاع النيازك الفضائي', desc: 'لعبة ليزر متحركة لتدمير النيازك العربية قبل اصطدامها بالدرع', fn: startArabicMeteorDefense, bg: 'var(--secondary-soft)', ink: 'var(--on-secondary-soft)' },
     { id: 'AR_MAZE', lang: 'AR', cat: 'DETECTIVE', icon: '🧭', title: 'متاهة الكنز والفضاء', desc: 'تحدَّ ألغاز الجرائم والعلوم وتجنب الفخاخ للوصول إلى الكنز 💎', fn: startArabicTreasureMaze, bg: 'var(--accent-soft)', ink: 'var(--on-accent-soft)' },
     { id: 'AR_BLITZ', lang: 'AR', cat: 'BLITZ', icon: '⚡', title: 'سباق المعاني السريع (Arabic Blitz)', desc: `${diff.dashDurationSec}ث للمرادفات والأضداد العربية بالكامل`, fn: startArabicBlitz, bg: 'var(--tertiary-soft)', ink: 'var(--on-tertiary-soft)' },
-    { id: 'AR_DETECTIVE', lang: 'AR', cat: 'DETECTIVE', icon: '🔍', title: 'كاشف الكلمة العربية', desc: `خمّن الكلمة العربية (${diff.detectiveLives} محاولات) بلوحة عربية`, fn: startArabicDetective, bg: 'var(--primary-soft)', ink: 'var(--on-primary-soft)' },
+    { id: 'AR_DETECTIVE', lang: 'AR', cat: 'DETECTIVE', icon: '🔍', title: 'كاشف الكلمة العربية', desc: `خمّن الكلمة العربية (${diff.detectiveLives} محاولات) بلوحة حروف مركّزة`, fn: startArabicDetective, bg: 'var(--primary-soft)', ink: 'var(--on-primary-soft)' },
     { id: 'AR_VAULT', lang: 'AR', cat: 'MEMORY', icon: '🔐', title: 'خزنة الحروف العربية', desc: `تحدي تخمين الكلمة العربية (${diff.vaultRows} صفوف) مع قفل متحرك`, fn: startArabicVault, bg: 'var(--sky-soft)', ink: 'var(--on-sky-soft)' },
     { id: 'AR_DUEL', lang: 'AR', cat: 'BLITZ', icon: '⚔️', title: 'تحدي الجرائم والحقائق (Crime & Facts)', desc: `${diff.duelDurationSec}ث في ألغاز الجرائم والعلوم والفلك والتاريخ`, fn: startArabicDuel, bg: 'var(--purple-soft)', ink: 'var(--on-purple-soft)' }
   ];
 
   const langTabs = [
     { id: 'ALL', label: `🌐 All (${games.length})` },
-    { id: 'EN', label: '🇬🇧 English (10)' },
-    { id: 'AR', label: '🇸🇦 ألعاب عربية Arabic (6)' }
+    { id: 'EN', label: '🇬🇧 English (11)' },
+    { id: 'AR', label: '🇸🇦 ألعاب عربية Arabic (7)' }
   ];
 
   const cats = [

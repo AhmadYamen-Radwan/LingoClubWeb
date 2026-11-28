@@ -406,12 +406,24 @@ export class OfflineStore {
         visibility: 'OFFLINE',
         name: 'Offline Explorers',
         cefrLevel: CefrLevel.B1,
-        motto: 'Practice English offline or sync across browser tabs with Nearby Squad!',
+        motto: 'Practice English & Arabic offline or sync across browser tabs with Nearby Squad!',
         accentColor: 'INDIGO',
         leaderUid: this.userId,
         leaderName: this.defaultName,
         channelKind: 'TEAM',
         memberCount: 1
+      },
+      {
+        id: 'offline_club_lounge',
+        visibility: 'OFFLINE',
+        name: 'LingoClub Open Lounge',
+        cefrLevel: CefrLevel.B1,
+        motto: 'Open bilingual club for quizzes, crime riddles, and daily practice',
+        accentColor: 'MINT',
+        leaderUid: this.userId,
+        leaderName: this.defaultName,
+        channelKind: 'CLUB',
+        memberCount: 3
       }
     ];
     writeJson(SHARED_TEAMS_KEY, defaults);
@@ -433,9 +445,9 @@ export class OfflineStore {
     return teams;
   }
 
-  createTeam({ name, cefrLevel, motto, accentColor, isTeacherHub }) {
+  createTeam({ name, cefrLevel, motto, accentColor, kind = 'TEAM' }) {
     const team = {
-      id: `offline_team_${Date.now().toString(36)}`,
+      id: `offline_${kind === 'CLUB' ? 'club' : 'team'}_${Date.now().toString(36)}`,
       visibility: 'OFFLINE',
       name: String(name || 'My Squad').trim().slice(0, 50),
       cefrLevel,
@@ -443,7 +455,7 @@ export class OfflineStore {
       accentColor: accentColor || 'INDIGO',
       leaderUid: this.userId,
       leaderName: this.loadProfile().displayName,
-      channelKind: isTeacherHub ? 'TEACHER_HUB' : 'TEAM',
+      channelKind: kind === 'CLUB' ? 'CLUB' : 'TEAM',
       memberCount: 1
     };
     return { team, teams: this.upsertTeam(team, true) };
@@ -451,10 +463,30 @@ export class OfflineStore {
 
   joinTeam(team) {
     const p = this.loadProfile();
-    const updated = p.teamId !== team.id
-      ? { ...team, memberCount: (team.memberCount || 1) + 1 }
+    const prevId = p.teamId;
+    let teams = this.loadTeams();
+    if (prevId && prevId !== team.id) {
+      teams = teams.map((t) => (t.id === prevId ? { ...t, memberCount: Math.max(0, (t.memberCount || 1) - 1) } : t));
+      writeJson(SHARED_TEAMS_KEY, teams);
+    }
+    const updated = prevId !== team.id
+      ? { ...team, memberCount: (team.memberCount || 0) + 1 }
       : team;
     return this.upsertTeam(updated, true);
+  }
+
+  leaveTeam(teamId) {
+    const teams = this.loadTeams().map((t) =>
+      t.id === teamId ? { ...t, memberCount: Math.max(0, (t.memberCount || 1) - 1) } : t
+    );
+    writeJson(SHARED_TEAMS_KEY, teams);
+    const p = this.loadProfile();
+    if (p.teamId === teamId) {
+      p.teamId = '';
+      p.teamName = '';
+      this.saveProfile(p);
+    }
+    return { teams, profile: p };
   }
 
   loadMessagesMap() {

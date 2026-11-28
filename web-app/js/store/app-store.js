@@ -13,7 +13,7 @@ import {
   createDefaultProfile,
   prepareDynamicQuizQuestions
 } from '../models.js';
-import { firebaseClient, DEFAULT_TEACHER_HUB_ID } from '../services/firebase-client.js';
+import { firebaseClient } from '../services/firebase-client.js';
 import {
   OfflineStore,
   OFFLINE_DEFAULT_TEAM_ID,
@@ -49,8 +49,6 @@ class AppStore extends EventTarget {
     this.globalScores = [];
     this.teamContributions = this.offlineStore.loadTeamContributions();
     this.teamScoresMap = this.offlineStore.loadTeamScoresMap();
-    this.studentsProgress = [];
-    this.selectedStudentDetail = null;
 
     // Live Kahoot Room State
     this.roomSession = null;
@@ -58,6 +56,7 @@ class AppStore extends EventTarget {
     this._roomClockKey = '';
     this._roomClockStartedMs = 0;
     this._lastRoomPhaseKey = '';
+    this._prevRoomPlayersMap = new Map();
 
     // Team Buzzer Overlay State (5-second lockout after buzz-in)
     this.teamBuzzer = {
@@ -87,7 +86,6 @@ class AppStore extends EventTarget {
     this._unsubs = [];
     this._roomUnsubs = [];
     this._chatUnsub = null;
-    this._tutorUnsubs = [];
     this._notifiedSessionBadges = new Set();
 
     this._initSubscriptions();
@@ -111,7 +109,6 @@ class AppStore extends EventTarget {
     });
     this._unsubs = [];
     this._clearChatUnsub();
-    this._clearTutorUnsubs();
     this._clearRoomUnsubs();
   }
 
@@ -120,13 +117,6 @@ class AppStore extends EventTarget {
       try { this._chatUnsub(); } catch (_) {}
       this._chatUnsub = null;
     }
-  }
-
-  _clearTutorUnsubs() {
-    this._tutorUnsubs.forEach((u) => {
-      try { u?.(); } catch (_) {}
-    });
-    this._tutorUnsubs = [];
   }
 
   _clearRoomUnsubs() {
@@ -192,15 +182,24 @@ class AppStore extends EventTarget {
       this.emit('change');
     });
 
-    // Best-effort room cleanup if host closes browser tab
+    // Best-effort room cleanup if host or player closes browser tab
     if (typeof window !== 'undefined') {
       window.addEventListener('pagehide', () => {
         const s = this.roomSession;
-        if (s?.isHost && s.roomCode) {
-          if (s.mode === 'LOCAL') {
-            nearbySync.closeLocalQuizRoom(s.roomCode);
+        if (s?.roomCode) {
+          if (s.isHost) {
+            if (s.mode === 'LOCAL') {
+              nearbySync.closeLocalQuizRoom(s.roomCode);
+            } else {
+              firebaseClient.deleteQuizRoom(s.roomCode).catch(() => {});
+            }
           } else {
-            firebaseClient.deleteQuizRoom(s.roomCode).catch(() => {});
+            const nick = s.localNickname || this.currentUserName;
+            if (s.mode === 'LOCAL') {
+              nearbySync.leaveLocalQuizRoom({ roomCode: s.roomCode, playerUid: this.currentUserId, nickname: nick });
+            } else {
+              firebaseClient.leaveRoomPlayer({ roomCode: s.roomCode, nickname: nick }).catch(() => {});
+            }
           }
         }
       });
@@ -214,7 +213,7 @@ class AppStore extends EventTarget {
         this.user = fbUser;
         this.authMode = 'GOOGLE';
         this.isOfflineMode = false;
-        this.selectedTeamId = DEFAULT_TEACHER_HUB_ID;
+        this.selectedTeamId = '';
         await this._startGoogleSync(fbUser);
       } else {
         this.user = null;
@@ -243,14 +242,14 @@ class AppStore extends EventTarget {
     this.customDecks = this.offlineStore.loadCustomDecks();
     this.customRoleplays = this.offlineStore.loadCustomRoleplays();
     this.teams = this.offlineStore.loadTeams();
-    this.selectedTeamId = this.profile.teamId || OFFLINE_DEFAULT_TEAM_ID;
+    this.selectedTeamId = this.profile.teamId || this.teams[0]?.id || OFFLINE_DEFAULT_TEAM_ID;
     this.chatMessages = this.offlineStore.loadMessagesMap()[this.selectedTeamId] || [];
     this.globalScores = this.offlineStore.loadScores();
     this.teamContributions = this.offlineStore.loadTeamContributions();
     this.teamScoresMap = this.offlineStore.loadTeamScoresMap();
     this.clubContent = [];
-    this.studentsProgress = [];
     this.roomSession = null;
+    this._prevRoomPlayersMap = new Map();
     this.emit('auth');
     this.emit('change');
   }
@@ -292,9 +291,6 @@ class AppStore extends EventTarget {
     const uid = fbUser.uid;
     try {
       await firebaseClient.ensureUserProfile(fbUser.displayName || 'Lingo Member');
-      if (firebaseClient.isBootstrappedTutor()) {
-        await firebaseClient.ensureDefaultTutorHubIfTutor(fbUser.displayName || 'Tutor');
-      }
     } catch (err) {
       console.warn('[AppStore] Initial profile sync notice:', err);
     }
@@ -312,7 +308,10 @@ class AppStore extends EventTarget {
       add(() => firebaseClient.observeUserProfile(uid, (p) => {
         if (p) {
           this.profile = p;
-          if (!this.selectedTeamId) this.selectedTeamId = p.teamId || DEFAULT_TEACHER_HUB_ID;
+          if (!this.selectedTeamId && (p.teamId || this.teams?.[0]?.id)) {
+            this.selectedTeamId = p.teamId || this.teams?.[0]?.id || '';
+            if (this.selectedTeamId) this._observeTeamChatOnline(this.selectedTeamId);
+          }
           this.emit('change');
         }
       })),
@@ -343,6 +342,10 @@ class AppStore extends EventTarget {
       })),
       add(() => firebaseClient.observeTeams((list) => {
         this.teams = list;
+        if (!this.selectedTeamId && (this.profile?.teamId || list[0]?.id)) {
+          this.selectedTeamId = this.profile?.teamId || list[0]?.id || '';
+          if (this.selectedTeamId) this._observeTeamChatOnline(this.selectedTeamId);
+        }
         this.emit('change');
       })),
       add(() => firebaseClient.observeClubContent((list) => {
@@ -355,8 +358,11 @@ class AppStore extends EventTarget {
       }))
     ]);
 
-    this._observeTeamChatOnline(this.selectedTeamId || DEFAULT_TEACHER_HUB_ID);
-    this._observeTutorRosterOnline(uid);
+    const initialTeamId = this.selectedTeamId || this.profile?.teamId || this.teams?.[0]?.id || '';
+    if (initialTeamId) {
+      this.selectedTeamId = initialTeamId;
+      this._observeTeamChatOnline(initialTeamId);
+    }
   }
 
   async _observeTeamChatOnline(teamId) {
@@ -376,79 +382,12 @@ class AppStore extends EventTarget {
     } catch (_) {}
   }
 
-  async _observeTutorRosterOnline(uid) {
-    this._clearTutorUnsubs();
-    if (this.isOfflineMode) return;
-    const sources = { linked: [], boot: [], direct: [] };
-    const merge = () => {
-      const map = new Map();
-      for (const s of sources.linked) {
-        map.set(s.studentUid || s.id, { ...s });
-      }
-      for (const u of [...sources.boot, ...sources.direct]) {
-        const sid = u.userId || u.id;
-        const ex = map.get(sid);
-        if (!ex) {
-          map.set(sid, {
-            id: sid,
-            studentUid: sid,
-            tutorUid: u.tutorUid || uid,
-            studentName: u.displayName || 'Student',
-            learningLevel: u.learningLevel || 'B1',
-            xp: u.xp || 0,
-            streak: u.streak || 1,
-            sessionsCompleted: u.sessionsCompleted || 0,
-            weeklyWordsMastered: u.weeklyWordsMastered || 0,
-            quizzesPlayed: u.quizzesPlayed || 0,
-            quizzesHosted: u.quizzesHosted || 0,
-            bestLiveQuizScore: u.bestLiveQuizScore || 0,
-            cardsMastered: u.cardsMastered || 0,
-            decksCreated: 0,
-            audiobooksFinished: u.audiobooksFinished || 0,
-            teamName: u.teamName || '',
-            earnedBadges: u.earnedBadges || [],
-            recentActivities: []
-          });
-        } else {
-          map.set(sid, {
-            ...ex,
-            studentName: u.displayName || ex.studentName,
-            learningLevel: u.learningLevel || ex.learningLevel,
-            xp: Math.max(ex.xp || 0, u.xp || 0),
-            streak: u.streak || ex.streak,
-            sessionsCompleted: Math.max(ex.sessionsCompleted || 0, u.sessionsCompleted || 0),
-            weeklyWordsMastered: Math.max(ex.weeklyWordsMastered || 0, u.weeklyWordsMastered || 0),
-            quizzesPlayed: Math.max(ex.quizzesPlayed || 0, u.quizzesPlayed || 0),
-            quizzesHosted: Math.max(ex.quizzesHosted || 0, u.quizzesHosted || 0),
-            bestLiveQuizScore: Math.max(ex.bestLiveQuizScore || 0, u.bestLiveQuizScore || 0),
-            cardsMastered: Math.max(ex.cardsMastered || 0, u.cardsMastered || 0),
-            audiobooksFinished: Math.max(ex.audiobooksFinished || 0, u.audiobooksFinished || 0),
-            teamName: u.teamName || ex.teamName,
-            earnedBadges: [...new Set([...(ex.earnedBadges || []), ...(u.earnedBadges || [])])]
-          });
-        }
-      }
-      this.studentsProgress = [...map.values()].sort((a, b) => (b.xp || 0) - (a.xp || 0));
-      this.emit('change');
-    };
-
-    try {
-      this._tutorUnsubs.push(await firebaseClient.observeLinkedStudents(uid, (l) => { sources.linked = l; merge(); }, () => {}));
-      this._tutorUnsubs.push(await firebaseClient.observeBootstrappedStudents((l) => { sources.boot = l; merge(); }, () => {}));
-      this._tutorUnsubs.push(await firebaseClient.observeDirectAssignedStudents(uid, (l) => { sources.direct = l; merge(); }, () => {}));
-    } catch (_) {}
-  }
-
   get currentUserId() {
     return this.isOfflineMode ? 'offline_explorer' : (this.user?.uid || 'offline_explorer');
   }
 
   get currentUserName() {
     return this.profile?.displayName || this.user?.displayName || 'Lingo Explorer';
-  }
-
-  get isBootstrappedTutor() {
-    return !this.isOfflineMode && firebaseClient.isBootstrappedTutor();
   }
 
   get difficultyConfig() {
@@ -492,15 +431,14 @@ class AppStore extends EventTarget {
     if (this.isOfflineMode) {
       this.profile = this.offlineStore.updateLearningLevel(level);
       this.emit('change');
-      this.toast(`Student level set to ${label}`);
+      this.toast(`CEFR level set to ${label}`);
       return;
     }
     this.profile = { ...this.profile, learningLevel: level };
     this.emit('change');
     try {
       await firebaseClient.updateLearningLevel(level);
-      await this._syncTutorIfLinked();
-      this.toast(`Student level updated to ${label}`);
+      this.toast(`CEFR level updated to ${label}`);
     } catch (err) {
       this.toast(err.message, 'error');
     }
@@ -655,21 +593,9 @@ class AppStore extends EventTarget {
           gameMode: publishLeaderboardMode
         });
       }
-      await this._syncTutorIfLinked();
     } catch (err) {
       console.warn('[AppStore] Cloud progress error:', err);
     }
-  }
-
-  async _syncTutorIfLinked() {
-    if (this.isOfflineMode || !this.profile?.tutorUid) return;
-    try {
-      await firebaseClient.syncStudentProgressToTutor({
-        profile: this.profile,
-        decksCount: this.customDecks.length,
-        recentSessions: this.sessionHistory
-      });
-    } catch (_) {}
   }
 
   // --- Weekly Curriculum ---
@@ -752,7 +678,6 @@ class AppStore extends EventTarget {
         wordsPracticed: 65,
         durationMinutes: 12
       });
-      await this._syncTutorIfLinked();
       this.confetti();
       this.toast(`Session ${sessionNumber} completed! +${newlyCompleted ? 50 : 15} XP`);
     } catch (err) {
@@ -830,7 +755,6 @@ class AppStore extends EventTarget {
     }
     await firebaseClient.saveCustomDeck(payload);
     this.toast(`Saved deck "${payload.title}" to cloud!`);
-    await this._syncTutorIfLinked();
   }
 
   async updateCustomDeck(deckId, payload) {
@@ -967,6 +891,7 @@ class AppStore extends EventTarget {
         cefrLevel,
         questions: prepared
       });
+      this._prevRoomPlayersMap = new Map();
       this.roomSession = {
         mode: 'LOCAL',
         roomCode: room.roomCode,
@@ -1010,6 +935,7 @@ class AppStore extends EventTarget {
       quizzesHostedDelta: 1,
       newEarnedBadgeIds: badges
     });
+    this._prevRoomPlayersMap = new Map();
     this.roomSession = {
       mode: 'CLOUD',
       roomCode: code,
@@ -1051,6 +977,8 @@ class AppStore extends EventTarget {
         teamName: this.profile?.teamName || myTeamObj?.name || ''
       });
       const existingPlayer = room.players?.[this.currentUserId];
+      const initPlayers = Object.values(room.players || {}).sort((a, b) => (b.score || 0) - (a.score || 0));
+      this._prevRoomPlayersMap = new Map(initPlayers.map((pl) => [pl.playerUid, pl.nickname || 'Player']));
       this.roomSession = {
         mode: 'LOCAL',
         roomCode: clean,
@@ -1058,7 +986,7 @@ class AppStore extends EventTarget {
         localNickname: cleanNick,
         localAvatarColor: avatarColor,
         room,
-        players: Object.values(room.players || {}).sort((a, b) => (b.score || 0) - (a.score || 0)),
+        players: initPlayers,
         roomMessages: room.messages || [],
         localScore: existingPlayer?.score || 0,
         localStreak: existingPlayer?.streak || 0,
@@ -1072,6 +1000,7 @@ class AppStore extends EventTarget {
     }
 
     const room = await firebaseClient.joinRoom({ roomCode: clean, nickname: cleanNick, avatarColor });
+    this._prevRoomPlayersMap = new Map();
     this.roomSession = {
       mode: 'CLOUD',
       roomCode: clean,
@@ -1131,6 +1060,7 @@ class AppStore extends EventTarget {
       hostUid,
       (players) => {
         if (!this.roomSession || this.roomSession.roomCode !== roomCode) return;
+        this._detectPlayerDepartures(players);
         this.roomSession = { ...this.roomSession, players };
         this.emit('change');
       },
@@ -1182,9 +1112,22 @@ class AppStore extends EventTarget {
     this._roomUnsubs.push(u1, u2, u3);
   }
 
+  _detectPlayerDepartures(players = []) {
+    const nextMap = new Map(players.map((p) => [p.playerUid, p.nickname || 'Player']));
+    if (this.roomSession?.isHost && this._prevRoomPlayersMap.size > 0) {
+      for (const [uid, nick] of this._prevRoomPlayersMap.entries()) {
+        if (!nextMap.has(uid) && uid !== this.currentUserId) {
+          this.toast(`👋 ${nick} left the game (${nextMap.size} remaining)`);
+        }
+      }
+    }
+    this._prevRoomPlayersMap = nextMap;
+  }
+
   _applyLocalRoomSnapshot(room) {
     if (!this.roomSession || this.roomSession.roomCode !== room.roomCode) return;
     const players = Object.values(room.players || {}).sort((a, b) => (b.score || 0) - (a.score || 0));
+    this._detectPlayerDepartures(players);
     this.roomSession = {
       ...this.roomSession,
       room,
@@ -1331,7 +1274,10 @@ class AppStore extends EventTarget {
         nickname: p.nickname,
         avatarColor: p.avatarColor || 'INDIGO',
         score: p.score || 0,
-        streak: p.streak || 0
+        streak: p.streak || 0,
+        lastAnsweredQuestion: Number(p.lastAnsweredQuestion ?? -1),
+        lastAnswerCorrect: Boolean(p.lastAnswerCorrect),
+        lastPointsEarned: Number(p.lastPointsEarned || 0)
       }));
     const startedAt = newStatus === RoomStatus.QUESTION ? Date.now() : Number(s.room.questionStartedAtMs || 0);
 
@@ -1394,21 +1340,41 @@ class AppStore extends EventTarget {
     this._roomClockKey = '';
     this._roomClockStartedMs = 0;
     this._lastRoomPhaseKey = '';
+    this._prevRoomPlayersMap = new Map();
     this.roomSession = null;
     this.emit('change');
-    if (s?.isHost && s.roomCode) {
-      if (s.mode === 'LOCAL') {
-        nearbySync.closeLocalQuizRoom(s.roomCode);
+    if (s?.roomCode) {
+      if (s.isHost) {
+        if (s.mode === 'LOCAL') {
+          nearbySync.closeLocalQuizRoom(s.roomCode);
+        } else {
+          try {
+            await firebaseClient.deleteQuizRoom(s.roomCode);
+          } catch (_) {}
+        }
+        this.toast('Quiz room closed — all players removed.');
       } else {
-        try {
-          await firebaseClient.deleteQuizRoom(s.roomCode);
-        } catch (_) {}
+        const nick = s.localNickname || this.currentUserName;
+        if (s.mode === 'LOCAL') {
+          nearbySync.leaveLocalQuizRoom({
+            roomCode: s.roomCode,
+            playerUid: this.currentUserId,
+            nickname: nick
+          });
+        } else {
+          try {
+            await firebaseClient.leaveRoomPlayer({
+              roomCode: s.roomCode,
+              nickname: nick
+            });
+          } catch (_) {}
+        }
+        this.toast(`Left room ${s.roomCode}.`);
       }
-      this.toast('Quiz room closed — all players removed.');
     }
   }
 
-  // --- Team Chat & Nearby Squad ---
+  // --- Team & Club Chat + Nearby Squad ---
 
   selectTeam(teamId) {
     this.selectedTeamId = teamId;
@@ -1421,15 +1387,16 @@ class AppStore extends EventTarget {
     }
   }
 
-  async createTeam({ name, cefrLevel, motto, accentColor, isTeacherHub = false }) {
+  async createTeam({ name, cefrLevel, motto, accentColor, kind = 'TEAM' }) {
+    const cleanKind = kind === 'CLUB' ? 'CLUB' : 'TEAM';
     if (this.isOfflineMode) {
-      const { team, teams } = this.offlineStore.createTeam({ name, cefrLevel, motto, accentColor, isTeacherHub });
+      const { team, teams } = this.offlineStore.createTeam({ name, cefrLevel, motto, accentColor, kind: cleanKind });
       this.teams = teams;
       this.profile = this.offlineStore.loadProfile();
       this.selectedTeamId = team.id;
       this.chatMessages = this.offlineStore.loadMessagesMap()[team.id] || [];
       this.emit('change');
-      this.toast(`Created team "${team.name}"!`);
+      this.toast(`Created ${cleanKind === 'CLUB' ? 'club' : 'team'} "${team.name}"!`);
       return team;
     }
     const id = await firebaseClient.createTeam({
@@ -1437,11 +1404,10 @@ class AppStore extends EventTarget {
       cefrLevel,
       motto,
       accentColor,
-      channelKind: isTeacherHub ? 'TEACHER_HUB' : 'TEAM',
       creatorName: this.currentUserName
     });
     this.selectTeam(id);
-    this.toast(`Created team "${name}"!`);
+    this.toast(`Created ${cleanKind === 'CLUB' ? 'club' : 'team'} "${name}"!`);
     return { id };
   }
 
@@ -1458,11 +1424,39 @@ class AppStore extends EventTarget {
     this.toast(`Joined "${team.name}"!`);
   }
 
+  async leaveTeam(team = null) {
+    const targetId = team?.id || this.profile?.teamId || '';
+    if (!targetId) return;
+    const targetName = team?.name || this.profile?.teamName || 'Squad';
+    const isClub = team?.channelKind === 'CLUB';
+    if (this.isOfflineMode) {
+      this.teams = this.offlineStore.leaveTeam(targetId);
+      this.profile = this.offlineStore.loadProfile();
+      if (this.selectedTeamId === targetId && this.teams.length > 0) {
+        this.selectedTeamId = this.teams[0].id;
+        this.chatMessages = this.offlineStore.loadMessagesMap()[this.selectedTeamId] || [];
+      }
+      this.emit('change');
+      this.toast(`🚪 Left ${isClub ? 'club' : 'team'} "${targetName}".`);
+      return;
+    }
+    try {
+      await firebaseClient.leaveTeam(targetId);
+      if (this.profile) {
+        this.profile = { ...this.profile, teamId: '', teamName: '' };
+      }
+      this.emit('change');
+      this.toast(`🚪 Left ${isClub ? 'club' : 'team'} "${targetName}".`);
+    } catch (err) {
+      this.toast(err.message, 'error');
+    }
+  }
+
   async sendTeamMessage(text, pinned = false) {
     const teamId = this.selectedTeamId;
     if (!teamId || !String(text || '').trim()) return;
     const team = this.teams.find((t) => t.id === teamId);
-    const isLeaderOrTutor = this.isBootstrappedTutor || team?.leaderUid === this.currentUserId;
+    const isLeader = team?.leaderUid === this.currentUserId;
 
     if (this.isOfflineMode) {
       const msg = {
@@ -1471,9 +1465,9 @@ class AppStore extends EventTarget {
         senderUid: this.currentUserId,
         senderName: this.currentUserName,
         senderTeamName: this.profile?.teamName || '',
-        senderRole: isLeaderOrTutor ? 'TEACHER' : 'PLAYER',
+        senderRole: 'PLAYER',
         text: String(text).trim().slice(0, 500),
-        pinned: Boolean(pinned && isLeaderOrTutor),
+        pinned: Boolean(pinned && isLeader),
         createdAtMs: Date.now()
       };
       this.offlineStore.appendMessage(msg);
@@ -1489,9 +1483,8 @@ class AppStore extends EventTarget {
       teamId,
       senderName: this.currentUserName,
       senderTeamName: this.profile?.teamName || '',
-      senderRole: isLeaderOrTutor ? 'TEACHER' : 'PLAYER',
       text,
-      pinned: Boolean(pinned && isLeaderOrTutor)
+      pinned: Boolean(pinned && isLeader)
     });
   }
 
@@ -1540,47 +1533,6 @@ class AppStore extends EventTarget {
     this.profile = this.offlineStore.loadProfile();
     this.selectTeam(squad.id);
     this.toast(`Connected to nearby squad "${squad.name}"!`);
-  }
-
-  // --- Tutor Connection & Inspection ---
-
-  async connectToTutor(tutorUid, tutorLabel) {
-    if (this.isOfflineMode) {
-      this.toast('Sign in with Google first to link your progress to a Tutor.', 'error');
-      return;
-    }
-    await firebaseClient.connectToTutor({
-      tutorUid,
-      tutorLabel,
-      profile: this.profile,
-      decksCount: this.customDecks.length,
-      recentSessions: this.sessionHistory
-    });
-    this.toast(`Connected to tutor ${tutorLabel || tutorUid}!`);
-  }
-
-  async disconnectFromTutor() {
-    if (this.isOfflineMode) return;
-    await firebaseClient.disconnectFromTutor(this.profile?.tutorUid || '');
-    this.toast('Disconnected from tutor.');
-  }
-
-  async syncTutorNow() {
-    if (this.isOfflineMode) return;
-    await this._syncTutorIfLinked();
-    this.toast('Synced latest progress to your tutor!');
-  }
-
-  async inspectStudentDetail(studentUid) {
-    if (this.isOfflineMode) return null;
-    try {
-      this.selectedStudentDetail = await firebaseClient.fetchStudentDetailBundle(studentUid);
-      this.emit('change');
-      return this.selectedStudentDetail;
-    } catch (err) {
-      this.toast(err.message, 'error');
-      return null;
-    }
   }
 
   // --- Kahoot-Style Team Battle Squads, Contributions & 5s Team Buzzer ---
