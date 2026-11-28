@@ -1,6 +1,6 @@
 {
   "name": "Remix LingoClub",
-  "description": "Interactive English teaching and party game studio for B2 learners and friends, featuring Kahoot-style live quizzes, word puzzles, flashcards, guessing games, and roleplays.",
+  "description": "Bilingual entertainment & English party club for friends and solo players, featuring live Kahoot-style quiz rooms, 18 arcade games, mystery puzzles, roleplays, and stickers.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

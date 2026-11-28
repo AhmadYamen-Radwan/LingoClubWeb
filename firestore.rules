@@ -14,14 +14,6 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
-    function isBootstrappedTutor() {
-      return isSignedIn() &&
-             'email_verified' in request.auth.token &&
-             request.auth.token.email_verified == true &&
-             'email' in request.auth.token &&
-             request.auth.token.email == 'radwana423@gmail.com';
-    }
-
     function isValidId(id) {
       return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
@@ -85,34 +77,9 @@ service cloud.firestore {
              )) &&
              (!('teamId' in data) || (data.teamId is string && data.teamId.size() <= 128)) &&
              (!('teamName' in data) || (data.teamName is string && data.teamName.size() <= 50)) &&
-             (!('accountRole' in data) || data.accountRole in ['STUDENT', 'TUTOR']) &&
-             (!('tutorUid' in data) || (data.tutorUid is string && data.tutorUid.size() <= 128)) &&
-             (!('tutorName' in data) || (data.tutorName is string && data.tutorName.size() <= 50)) &&
+             (!('sfxMuted' in data) || data.sfxMuted is bool) &&
+             (!('sfxVolume' in data) || (data.sfxVolume is int && data.sfxVolume >= 0 && data.sfxVolume <= 100)) &&
              (!('lastActiveEpochDay' in data) || (data.lastActiveEpochDay is int && data.lastActiveEpochDay >= 0 && data.lastActiveEpochDay <= 100000)) &&
-             data.createdAt is timestamp && data.createdAt <= request.time &&
-             data.updatedAt is timestamp && data.updatedAt <= request.time;
-    }
-
-    function isValidTutorStudentProgress(data) {
-      return data.studentUid is string && data.studentUid.size() >= 1 && data.studentUid.size() <= 128 &&
-             data.tutorUid is string && data.tutorUid.size() >= 1 && data.tutorUid.size() <= 128 &&
-             data.studentName is string && data.studentName.size() >= 1 && data.studentName.size() <= 50 &&
-             isValidCefrLevel(data.learningLevel) &&
-             data.xp is int && data.xp >= 0 && data.xp <= 10000000 &&
-             data.streak is int && data.streak >= 0 && data.streak <= 10000 &&
-             data.sessionsCompleted is int && data.sessionsCompleted >= 0 && data.sessionsCompleted <= 10000 &&
-             data.weeklyWordsMastered is int && data.weeklyWordsMastered >= 0 && data.weeklyWordsMastered <= 100000 &&
-             data.quizzesPlayed is int && data.quizzesPlayed >= 0 && data.quizzesPlayed <= 100000 &&
-             data.quizzesHosted is int && data.quizzesHosted >= 0 && data.quizzesHosted <= 100000 &&
-             data.bestLiveQuizScore is int && data.bestLiveQuizScore >= 0 && data.bestLiveQuizScore <= 500000 &&
-             data.cardsMastered is int && data.cardsMastered >= 0 && data.cardsMastered <= 100000 &&
-             data.decksCreated is int && data.decksCreated >= 0 && data.decksCreated <= 1000 &&
-             data.audiobooksFinished is int && data.audiobooksFinished >= 0 && data.audiobooksFinished <= 10000 &&
-             data.teamName is string && data.teamName.size() <= 50 &&
-             data.earnedBadges is list && data.earnedBadges.size() <= 30 &&
-             (data.earnedBadges.size() == 0 || data.earnedBadges[0] is string) &&
-             data.recentActivities is list && data.recentActivities.size() <= 10 &&
-             (data.recentActivities.size() == 0 || data.recentActivities[0] is map) &&
              data.createdAt is timestamp && data.createdAt <= request.time &&
              data.updatedAt is timestamp && data.updatedAt <= request.time;
     }
@@ -125,8 +92,19 @@ service cloud.firestore {
              data.accentColor is string && data.accentColor in ['INDIGO', 'CORAL', 'AMBER', 'MINT', 'PURPLE'] &&
              data.leaderUid is string && data.leaderUid.size() >= 1 && data.leaderUid.size() <= 128 &&
              data.leaderName is string && data.leaderName.size() >= 1 && data.leaderName.size() <= 50 &&
-             data.channelKind is string && data.channelKind in ['TEACHER_HUB', 'TEAM'] &&
+             data.channelKind is string && data.channelKind in ['TEAM', 'CLUB'] &&
              data.memberCount is int && data.memberCount >= 0 && data.memberCount <= 10000 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidTeamMember(data) {
+      return data.teamId is string && data.teamId.size() >= 1 && data.teamId.size() <= 128 &&
+             data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 40 &&
+             data.avatarColor is string && data.avatarColor in ['INDIGO', 'CORAL', 'AMBER', 'MINT', 'BLUE', 'PURPLE'] &&
+             data.role is string && data.role in ['CAPTAIN', 'PLAYER'] &&
+             data.memberUid is string && data.memberUid.size() <= 128 &&
+             data.addedByUid is string && data.addedByUid.size() >= 1 && data.addedByUid.size() <= 128 &&
              data.createdAt is timestamp && data.createdAt <= request.time &&
              data.updatedAt is timestamp && data.updatedAt <= request.time;
     }
@@ -136,7 +114,7 @@ service cloud.firestore {
              data.senderUid is string && data.senderUid.size() >= 1 && data.senderUid.size() <= 128 &&
              data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 50 &&
              data.senderTeamName is string && data.senderTeamName.size() <= 50 &&
-             data.senderRole is string && data.senderRole in ['ADMIN', 'TEACHER', 'PLAYER'] &&
+             data.senderRole is string && data.senderRole in ['LEADER', 'PLAYER'] &&
              data.text is string && data.text.size() >= 1 && data.text.size() <= 500 &&
              data.pinned is bool &&
              data.createdAt is timestamp && data.createdAt <= request.time &&
@@ -224,7 +202,9 @@ service cloud.firestore {
       return data.title is string && data.title.size() >= 1 && data.title.size() <= 80 &&
              data.topic is string && data.topic.size() >= 1 && data.topic.size() <= 40 &&
              isValidCefrLevel(data.cefrLevel) &&
-             data.questions is list && data.questions.size() >= 1 && data.questions.size() <= 20 &&
+             (!('customPrompt' in data) || (data.customPrompt is string && data.customPrompt.size() <= 400)) &&
+             (!('language' in data) || (data.language is string && data.language in ['EN', 'AR'])) &&
+             data.questions is list && data.questions.size() >= 1 && data.questions.size() <= 60 &&
              data.questions[0] is map &&
              data.createdAt is timestamp && data.createdAt <= request.time &&
              data.updatedAt is timestamp && data.updatedAt <= request.time;
@@ -253,9 +233,9 @@ service cloud.firestore {
              data.quizTitle is string && data.quizTitle.size() >= 1 && data.quizTitle.size() <= 80 &&
              isValidCefrLevel(data.cefrLevel) &&
              isValidRoomStatus(data.status) &&
-             data.currentQuestionIndex is int && data.currentQuestionIndex >= 0 && data.currentQuestionIndex <= 20 &&
+             data.currentQuestionIndex is int && data.currentQuestionIndex >= 0 && data.currentQuestionIndex <= 60 &&
              data.questionStartedAtMs is int && data.questionStartedAtMs >= 0 &&
-             data.questions is list && data.questions.size() >= 1 && data.questions.size() <= 20 &&
+             data.questions is list && data.questions.size() >= 1 && data.questions.size() <= 60 &&
              data.questions[0] is map &&
              data.leaderboard is list && data.leaderboard.size() <= 25 &&
              (data.leaderboard.size() == 0 || data.leaderboard[0] is map) &&
@@ -269,10 +249,12 @@ service cloud.firestore {
              data.hostUid is string && data.hostUid.size() >= 1 && data.hostUid.size() <= 128 &&
              data.nickname is string && data.nickname.size() >= 1 && data.nickname.size() <= 24 &&
              data.avatarColor is string && data.avatarColor.size() >= 1 && data.avatarColor.size() <= 20 &&
+             (!('teamId' in data) || (data.teamId is string && data.teamId.size() <= 128)) &&
+             (!('teamName' in data) || (data.teamName is string && data.teamName.size() <= 50)) &&
              data.score is int && data.score >= 0 && data.score <= 500000 &&
              data.streak is int && data.streak >= 0 && data.streak <= 50 &&
              data.lastAnswerIndex is int && data.lastAnswerIndex >= -1 && data.lastAnswerIndex <= 3 &&
-             data.lastAnsweredQuestion is int && data.lastAnsweredQuestion >= -1 && data.lastAnsweredQuestion <= 20 &&
+             data.lastAnsweredQuestion is int && data.lastAnsweredQuestion >= -1 && data.lastAnsweredQuestion <= 60 &&
              data.lastAnswerCorrect is bool &&
              data.lastPointsEarned is int && data.lastPointsEarned >= 0 && data.lastPointsEarned <= 2000 &&
              data.createdAt is timestamp && data.createdAt <= request.time &&
@@ -295,6 +277,8 @@ service cloud.firestore {
       return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
              data.playerName is string && data.playerName.size() >= 1 && data.playerName.size() <= 50 &&
              data.avatarColor is string && data.avatarColor.size() >= 1 && data.avatarColor.size() <= 24 &&
+             (!('teamId' in data) || (data.teamId is string && data.teamId.size() <= 128)) &&
+             (!('teamName' in data) || (data.teamName is string && data.teamName.size() <= 50)) &&
              data.quizTitle is string && data.quizTitle.size() >= 1 && data.quizTitle.size() <= 100 &&
              isValidCefrLevel(data.cefrLevel) &&
              data.score is int && data.score >= 0 && data.score <= 500000 &&
@@ -305,55 +289,15 @@ service cloud.firestore {
              data.updatedAt is timestamp && data.updatedAt <= request.time;
     }
 
-    match /tutors/{tutorUid} {
-      match /students/{studentUid} {
-        allow get: if isValidId(tutorUid) &&
-                      isValidId(studentUid) &&
-                      isSignedIn() &&
-                      (request.auth.uid == tutorUid || request.auth.uid == studentUid);
-
-        allow list: if isSignedIn() && request.auth.uid == tutorUid;
-
-        allow create: if isValidId(tutorUid) &&
-                         isValidId(studentUid) &&
-                         isOwner(studentUid) &&
-                         incoming().studentUid == studentUid &&
-                         incoming().tutorUid == tutorUid &&
-                         incoming().keys().hasAll(['studentUid', 'tutorUid', 'studentName', 'learningLevel', 'xp', 'streak', 'sessionsCompleted', 'weeklyWordsMastered', 'quizzesPlayed', 'quizzesHosted', 'bestLiveQuizScore', 'cardsMastered', 'decksCreated', 'audiobooksFinished', 'teamName', 'earnedBadges', 'recentActivities', 'createdAt', 'updatedAt']) &&
-                         incoming().keys().hasOnly(['studentUid', 'tutorUid', 'studentName', 'learningLevel', 'xp', 'streak', 'sessionsCompleted', 'weeklyWordsMastered', 'quizzesPlayed', 'quizzesHosted', 'bestLiveQuizScore', 'cardsMastered', 'decksCreated', 'audiobooksFinished', 'teamName', 'earnedBadges', 'recentActivities', 'createdAt', 'updatedAt']) &&
-                         isValidTutorStudentProgress(incoming());
-
-        allow update: if isValidId(tutorUid) &&
-                         isValidId(studentUid) &&
-                         isOwner(studentUid) &&
-                         isValidTutorStudentProgress(incoming()) &&
-                         incoming().studentUid == existing().studentUid &&
-                         incoming().tutorUid == existing().tutorUid &&
-                         incoming().createdAt == existing().createdAt &&
-                         incoming().diff(existing()).affectedKeys().hasOnly(['studentName', 'learningLevel', 'xp', 'streak', 'sessionsCompleted', 'weeklyWordsMastered', 'quizzesPlayed', 'quizzesHosted', 'bestLiveQuizScore', 'cardsMastered', 'decksCreated', 'audiobooksFinished', 'teamName', 'earnedBadges', 'recentActivities', 'updatedAt']);
-
-        allow delete: if isValidId(tutorUid) &&
-                         isValidId(studentUid) &&
-                         isSignedIn() &&
-                         (request.auth.uid == studentUid || request.auth.uid == tutorUid);
-      }
-    }
-
     match /users/{userId} {
-      allow get: if isValidId(userId) && (
-        isOwner(userId) ||
-        isBootstrappedTutor() ||
-        (isSignedIn() && existing().tutorUid == request.auth.uid)
-      );
-      allow list: if (isBootstrappedTutor() && existing().accountRole == 'STUDENT') ||
-                     (isSignedIn() && existing().tutorUid == request.auth.uid);
+      allow get: if isValidId(userId) && isOwner(userId);
+      allow list: if isOwner(userId);
 
       allow create: if isValidId(userId) &&
                        isOwner(userId) &&
                        incoming().userId == request.auth.uid &&
-                       (!('accountRole' in incoming()) || incoming().accountRole == 'STUDENT' || isBootstrappedTutor()) &&
                        incoming().keys().hasAll(['userId', 'displayName', 'learningLevel', 'xp', 'streak', 'quizzesHosted', 'quizzesPlayed', 'cardsMastered', 'sessionsCompleted', 'audiobooksFinished', 'weeklyWordsMastered', 'bestLiveQuizScore', 'earnedBadges', 'teamId', 'teamName', 'lastActiveEpochDay', 'createdAt', 'updatedAt']) &&
-                       incoming().keys().hasOnly(['userId', 'displayName', 'learningLevel', 'xp', 'streak', 'quizzesHosted', 'quizzesPlayed', 'cardsMastered', 'sessionsCompleted', 'audiobooksFinished', 'weeklyWordsMastered', 'bestLiveQuizScore', 'earnedBadges', 'pinnedEvidenceIds', 'teamId', 'teamName', 'accountRole', 'tutorUid', 'tutorName', 'lastActiveEpochDay', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'displayName', 'learningLevel', 'xp', 'streak', 'quizzesHosted', 'quizzesPlayed', 'cardsMastered', 'sessionsCompleted', 'audiobooksFinished', 'weeklyWordsMastered', 'bestLiveQuizScore', 'earnedBadges', 'pinnedEvidenceIds', 'teamId', 'teamName', 'sfxMuted', 'sfxVolume', 'lastActiveEpochDay', 'createdAt', 'updatedAt']) &&
                        isValidUserProfile(incoming());
 
       allow update: if isValidId(userId) &&
@@ -361,14 +305,13 @@ service cloud.firestore {
                        isValidUserProfile(incoming()) &&
                        incoming().userId == existing().userId &&
                        incoming().createdAt == existing().createdAt &&
-                       (!('accountRole' in incoming()) || incoming().accountRole == 'STUDENT' || isBootstrappedTutor()) &&
-                       incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'learningLevel', 'xp', 'streak', 'quizzesHosted', 'quizzesPlayed', 'cardsMastered', 'sessionsCompleted', 'audiobooksFinished', 'weeklyWordsMastered', 'bestLiveQuizScore', 'earnedBadges', 'pinnedEvidenceIds', 'teamId', 'teamName', 'accountRole', 'tutorUid', 'tutorName', 'lastActiveEpochDay', 'updatedAt']);
+                       incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'learningLevel', 'xp', 'streak', 'quizzesHosted', 'quizzesPlayed', 'cardsMastered', 'sessionsCompleted', 'audiobooksFinished', 'weeklyWordsMastered', 'bestLiveQuizScore', 'earnedBadges', 'pinnedEvidenceIds', 'teamId', 'teamName', 'sfxMuted', 'sfxVolume', 'lastActiveEpochDay', 'updatedAt']);
 
       allow delete: if isValidId(userId) && isOwner(userId);
 
       match /session_history/{recordId} {
-        allow get: if isValidId(recordId) && (isOwner(userId) || isBootstrappedTutor());
-        allow list: if isOwner(userId) || isBootstrappedTutor();
+        allow get: if isValidId(recordId) && isOwner(userId);
+        allow list: if isOwner(userId);
 
         allow create: if isValidId(recordId) &&
                          isOwner(userId) &&
@@ -381,8 +324,8 @@ service cloud.firestore {
       }
 
       match /weekly_progress/{weekId} {
-        allow get: if isValidId(weekId) && (isOwner(userId) || isBootstrappedTutor());
-        allow list: if isOwner(userId) || isBootstrappedTutor();
+        allow get: if isValidId(weekId) && isOwner(userId);
+        allow list: if isOwner(userId);
 
         allow create: if isValidId(weekId) &&
                          isOwner(userId) &&
@@ -426,21 +369,21 @@ service cloud.firestore {
         allow create: if isValidId(quizId) &&
                          isOwner(userId) &&
                          incoming().keys().hasAll(['title', 'topic', 'cefrLevel', 'questions', 'createdAt', 'updatedAt']) &&
-                         incoming().keys().hasOnly(['title', 'topic', 'cefrLevel', 'questions', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['title', 'topic', 'cefrLevel', 'customPrompt', 'language', 'questions', 'createdAt', 'updatedAt']) &&
                          isValidCustomQuiz(incoming());
 
         allow update: if isValidId(quizId) &&
                          isOwner(userId) &&
                          isValidCustomQuiz(incoming()) &&
                          incoming().createdAt == existing().createdAt &&
-                         incoming().diff(existing()).affectedKeys().hasOnly(['title', 'topic', 'cefrLevel', 'questions', 'updatedAt']);
+                         incoming().diff(existing()).affectedKeys().hasOnly(['title', 'topic', 'cefrLevel', 'customPrompt', 'language', 'questions', 'updatedAt']);
 
         allow delete: if isValidId(quizId) && isOwner(userId);
       }
 
       match /custom_decks/{deckId} {
-        allow get: if isValidId(deckId) && (isOwner(userId) || isBootstrappedTutor());
-        allow list: if isOwner(userId) || isBootstrappedTutor();
+        allow get: if isValidId(deckId) && isOwner(userId);
+        allow list: if isOwner(userId);
 
         allow create: if isValidId(deckId) &&
                          isOwner(userId) &&
@@ -458,8 +401,8 @@ service cloud.firestore {
       }
 
       match /card_mastery/{cardKey} {
-        allow get: if isValidId(cardKey) && (isOwner(userId) || isBootstrappedTutor());
-        allow list: if isOwner(userId) || isBootstrappedTutor();
+        allow get: if isValidId(cardKey) && isOwner(userId);
+        allow list: if isOwner(userId);
 
         allow create: if isValidId(cardKey) &&
                          isOwner(userId) &&
@@ -485,7 +428,7 @@ service cloud.firestore {
       allow create: if isValidId(teamId) &&
                        isSignedIn() &&
                        incoming().leaderUid == request.auth.uid &&
-                       (incoming().channelKind == 'TEAM' || isBootstrappedTutor()) &&
+                       incoming().channelKind in ['TEAM', 'CLUB'] &&
                        incoming().keys().hasAll(['visibility', 'name', 'cefrLevel', 'motto', 'accentColor', 'leaderUid', 'leaderName', 'channelKind', 'memberCount', 'createdAt', 'updatedAt']) &&
                        incoming().keys().hasOnly(['visibility', 'name', 'cefrLevel', 'motto', 'accentColor', 'leaderUid', 'leaderName', 'channelKind', 'memberCount', 'createdAt', 'updatedAt']) &&
                        isValidTeam(incoming());
@@ -498,7 +441,7 @@ service cloud.firestore {
                        incoming().channelKind == existing().channelKind &&
                        incoming().createdAt == existing().createdAt &&
                        (
-                         ((existing().leaderUid == request.auth.uid || isBootstrappedTutor()) &&
+                         (existing().leaderUid == request.auth.uid &&
                           incoming().diff(existing()).affectedKeys().hasOnly(['name', 'cefrLevel', 'motto', 'accentColor', 'memberCount', 'updatedAt'])) ||
                          (incoming().diff(existing()).affectedKeys().hasOnly(['memberCount', 'updatedAt']) &&
                           incoming().memberCount <= existing().memberCount + 1 &&
@@ -507,7 +450,7 @@ service cloud.firestore {
 
       allow delete: if isValidId(teamId) &&
                        isSignedIn() &&
-                       (existing().leaderUid == request.auth.uid || isBootstrappedTutor());
+                       existing().leaderUid == request.auth.uid;
 
       match /messages/{messageId} {
         allow get: if isValidId(teamId) &&
@@ -528,14 +471,14 @@ service cloud.firestore {
                          exists(/databases/$(database)/documents/teams/$(teamId)) &&
                          (
                            incoming().senderRole == 'PLAYER' ||
-                           (incoming().senderRole == 'TEACHER' && (isBootstrappedTutor() || get(/databases/$(database)/documents/teams/$(teamId)).data.leaderUid == request.auth.uid))
+                           (incoming().senderRole == 'LEADER' && get(/databases/$(database)/documents/teams/$(teamId)).data.leaderUid == request.auth.uid)
                          ) &&
-                         (!incoming().pinned || isBootstrappedTutor() || get(/databases/$(database)/documents/teams/$(teamId)).data.leaderUid == request.auth.uid);
+                         (!incoming().pinned || get(/databases/$(database)/documents/teams/$(teamId)).data.leaderUid == request.auth.uid);
 
         allow update: if isValidId(teamId) &&
                          isValidId(messageId) &&
                          isSignedIn() &&
-                         (isBootstrappedTutor() || get(/databases/$(database)/documents/teams/$(teamId)).data.leaderUid == request.auth.uid) &&
+                         (existing().senderUid == request.auth.uid || get(/databases/$(database)/documents/teams/$(teamId)).data.leaderUid == request.auth.uid) &&
                          isValidChatMessage(incoming()) &&
                          incoming().teamId == existing().teamId &&
                          incoming().senderUid == existing().senderUid &&
@@ -545,7 +488,45 @@ service cloud.firestore {
         allow delete: if isValidId(teamId) &&
                          isValidId(messageId) &&
                          isSignedIn() &&
-                         (existing().senderUid == request.auth.uid || isBootstrappedTutor());
+                         (existing().senderUid == request.auth.uid || get(/databases/$(database)/documents/teams/$(teamId)).data.leaderUid == request.auth.uid);
+      }
+
+      match /members/{memberId} {
+        allow get: if isValidId(teamId) &&
+                      isValidId(memberId) &&
+                      isSignedIn() &&
+                      existing().teamId == teamId;
+
+        allow list: if isSignedIn() && existing().teamId == teamId;
+
+        allow create: if isValidId(teamId) &&
+                         isValidId(memberId) &&
+                         isSignedIn() &&
+                         incoming().addedByUid == request.auth.uid &&
+                         incoming().teamId == teamId &&
+                         incoming().keys().hasAll(['teamId', 'displayName', 'avatarColor', 'role', 'memberUid', 'addedByUid', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['teamId', 'displayName', 'avatarColor', 'role', 'memberUid', 'addedByUid', 'createdAt', 'updatedAt']) &&
+                         isValidTeamMember(incoming()) &&
+                         exists(/databases/$(database)/documents/teams/$(teamId)) &&
+                         (
+                           incoming().role == 'PLAYER' ||
+                           get(/databases/$(database)/documents/teams/$(teamId)).data.leaderUid == request.auth.uid
+                         );
+
+        allow update: if isValidId(teamId) &&
+                         isValidId(memberId) &&
+                         isSignedIn() &&
+                         isValidTeamMember(incoming()) &&
+                         (existing().addedByUid == request.auth.uid || existing().memberUid == request.auth.uid || get(/databases/$(database)/documents/teams/$(teamId)).data.leaderUid == request.auth.uid) &&
+                         incoming().teamId == existing().teamId &&
+                         incoming().addedByUid == existing().addedByUid &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'avatarColor', 'role', 'updatedAt']);
+
+        allow delete: if isValidId(teamId) &&
+                         isValidId(memberId) &&
+                         isSignedIn() &&
+                         (existing().addedByUid == request.auth.uid || existing().memberUid == request.auth.uid || get(/databases/$(database)/documents/teams/$(teamId)).data.leaderUid == request.auth.uid);
       }
     }
 
@@ -554,21 +535,22 @@ service cloud.firestore {
       allow list: if isSignedIn() && existing().visibility == 'CLUB';
 
       allow create: if isValidId(contentId) &&
-                       isBootstrappedTutor() &&
+                       isSignedIn() &&
                        incoming().authorUid == request.auth.uid &&
                        incoming().keys().hasAll(['visibility', 'authorUid', 'authorName', 'contentType', 'title', 'description', 'cefrLevel', 'topic', 'puzzleKind', 'tokens', 'clozeBefore', 'clozeAfter', 'clozeAnswer', 'clozeOptions', 'matchPairs', 'questions', 'cards', 'roleAName', 'roleBName', 'goal', 'lines', 'plotTwists', 'weekNumber', 'sessionNumber', 'vocabWords', 'createdAt', 'updatedAt']) &&
                        incoming().keys().hasOnly(['visibility', 'authorUid', 'authorName', 'contentType', 'title', 'description', 'cefrLevel', 'topic', 'puzzleKind', 'tokens', 'clozeBefore', 'clozeAfter', 'clozeAnswer', 'clozeOptions', 'matchPairs', 'questions', 'cards', 'roleAName', 'roleBName', 'goal', 'lines', 'plotTwists', 'weekNumber', 'sessionNumber', 'vocabWords', 'createdAt', 'updatedAt']) &&
                        isValidClubContent(incoming());
 
       allow update: if isValidId(contentId) &&
-                       isBootstrappedTutor() &&
+                       isSignedIn() &&
+                       existing().authorUid == request.auth.uid &&
                        isValidClubContent(incoming()) &&
                        incoming().authorUid == existing().authorUid &&
                        incoming().visibility == existing().visibility &&
                        incoming().createdAt == existing().createdAt &&
                        incoming().diff(existing()).affectedKeys().hasOnly(['contentType', 'title', 'description', 'cefrLevel', 'topic', 'puzzleKind', 'tokens', 'clozeBefore', 'clozeAfter', 'clozeAnswer', 'clozeOptions', 'matchPairs', 'questions', 'cards', 'roleAName', 'roleBName', 'goal', 'lines', 'plotTwists', 'weekNumber', 'sessionNumber', 'vocabWords', 'updatedAt']);
 
-      allow delete: if isValidId(contentId) && isBootstrappedTutor();
+      allow delete: if isValidId(contentId) && isSignedIn() && existing().authorUid == request.auth.uid;
     }
 
     match /quiz_rooms/{roomCode} {
@@ -618,7 +600,7 @@ service cloud.firestore {
                          incoming().lastAnswerIndex == -1 &&
                          incoming().lastAnsweredQuestion == -1 &&
                          incoming().keys().hasAll(['playerUid', 'roomCode', 'hostUid', 'nickname', 'avatarColor', 'score', 'streak', 'lastAnswerIndex', 'lastAnsweredQuestion', 'lastAnswerCorrect', 'lastPointsEarned', 'createdAt', 'updatedAt']) &&
-                         incoming().keys().hasOnly(['playerUid', 'roomCode', 'hostUid', 'nickname', 'avatarColor', 'score', 'streak', 'lastAnswerIndex', 'lastAnsweredQuestion', 'lastAnswerCorrect', 'lastPointsEarned', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['playerUid', 'roomCode', 'hostUid', 'nickname', 'avatarColor', 'teamId', 'teamName', 'score', 'streak', 'lastAnswerIndex', 'lastAnsweredQuestion', 'lastAnswerCorrect', 'lastPointsEarned', 'createdAt', 'updatedAt']) &&
                          isValidRoomPlayer(incoming()) &&
                          exists(/databases/$(database)/documents/quiz_rooms/$(roomCode)) &&
                          get(/databases/$(database)/documents/quiz_rooms/$(roomCode)).data.hostUid == incoming().hostUid &&
@@ -633,7 +615,7 @@ service cloud.firestore {
                          incoming().roomCode == existing().roomCode &&
                          incoming().hostUid == existing().hostUid &&
                          incoming().createdAt == existing().createdAt &&
-                         incoming().diff(existing()).affectedKeys().hasOnly(['nickname', 'avatarColor', 'score', 'streak', 'lastAnswerIndex', 'lastAnsweredQuestion', 'lastAnswerCorrect', 'lastPointsEarned', 'updatedAt']) &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['nickname', 'avatarColor', 'teamId', 'teamName', 'score', 'streak', 'lastAnswerIndex', 'lastAnsweredQuestion', 'lastAnswerCorrect', 'lastPointsEarned', 'updatedAt']) &&
                          get(/databases/$(database)/documents/quiz_rooms/$(roomCode)).data.status != 'PODIUM';
 
         allow delete: if isValidRoomCode(roomCode) &&
@@ -679,7 +661,7 @@ service cloud.firestore {
                        isSignedIn() &&
                        incoming().userId == request.auth.uid &&
                        incoming().keys().hasAll(['userId', 'playerName', 'avatarColor', 'quizTitle', 'cefrLevel', 'score', 'accuracyPct', 'streak', 'gameMode', 'createdAt', 'updatedAt']) &&
-                       incoming().keys().hasOnly(['userId', 'playerName', 'avatarColor', 'quizTitle', 'cefrLevel', 'score', 'accuracyPct', 'streak', 'gameMode', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'playerName', 'avatarColor', 'teamId', 'teamName', 'quizTitle', 'cefrLevel', 'score', 'accuracyPct', 'streak', 'gameMode', 'createdAt', 'updatedAt']) &&
                        isValidScoreRecord(incoming());
 
       allow update: if isValidId(scoreId) &&
@@ -688,11 +670,11 @@ service cloud.firestore {
                        isValidScoreRecord(incoming()) &&
                        incoming().userId == existing().userId &&
                        incoming().createdAt == existing().createdAt &&
-                       incoming().diff(existing()).affectedKeys().hasOnly(['playerName', 'avatarColor', 'quizTitle', 'cefrLevel', 'score', 'accuracyPct', 'streak', 'gameMode', 'updatedAt']);
+                       incoming().diff(existing()).affectedKeys().hasOnly(['playerName', 'avatarColor', 'teamId', 'teamName', 'quizTitle', 'cefrLevel', 'score', 'accuracyPct', 'streak', 'gameMode', 'updatedAt']);
 
       allow delete: if isValidId(scoreId) &&
                        isSignedIn() &&
-                       (isOwner(existing().userId) || isBootstrappedTutor());
+                       isOwner(existing().userId);
     }
   }
 }

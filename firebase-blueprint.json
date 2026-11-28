@@ -2,7 +2,7 @@
   "entities": {
     "UserProfile": {
       "title": "UserProfile",
-      "description": "Learner and tutor profile stats including CEFR level, badges, team membership, tutor link, and historical performance counters.",
+      "description": "Player and English learner profile stats including CEFR level, badges, squad membership, and performance counters.",
       "type": "object",
       "properties": {
         "userId": {
@@ -16,7 +16,7 @@
         "learningLevel": {
           "type": "string",
           "enum": ["A1", "A2", "B1", "B2"],
-          "description": "Learner's active CEFR learning level."
+          "description": "Player's active CEFR English level."
         },
         "xp": {
           "type": "integer",
@@ -24,11 +24,11 @@
         },
         "streak": {
           "type": "integer",
-          "description": "Current practice streak count in days."
+          "description": "Current play and practice streak count in days."
         },
         "quizzesHosted": {
           "type": "integer",
-          "description": "Number of live quizzes hosted."
+          "description": "Number of live party quizzes hosted."
         },
         "quizzesPlayed": {
           "type": "integer",
@@ -40,11 +40,11 @@
         },
         "sessionsCompleted": {
           "type": "integer",
-          "description": "Number of weekly teaching sessions completed (3 sessions/week)."
+          "description": "Number of weekly word quest rounds completed (3 rounds/week)."
         },
         "audiobooksFinished": {
           "type": "integer",
-          "description": "Number of audiobook chapters/books listened to."
+          "description": "Number of story chapters/audiobooks listened to."
         },
         "weeklyWordsMastered": {
           "type": "integer",
@@ -52,40 +52,35 @@
         },
         "bestLiveQuizScore": {
           "type": "integer",
-          "description": "Highest score achieved in a live or solo Kahoot quiz."
+          "description": "Highest score achieved in a live or solo Quiz Clash."
         },
         "earnedBadges": {
           "type": "array",
-          "description": "Unlocked badge IDs earned from weekly sessions and live quiz high scores."
+          "description": "Unlocked badge IDs earned from games, word quests, and live quiz high scores."
         },
         "teamId": {
           "type": "string",
-          "description": "Current joined team document ID."
+          "description": "Current joined squad document ID."
         },
         "teamName": {
           "type": "string",
-          "description": "Current joined team display name."
-        },
-        "accountRole": {
-          "type": "string",
-          "enum": ["STUDENT", "TUTOR"],
-          "description": "Account role for tutor-student progress visibility."
-        },
-        "tutorUid": {
-          "type": "string",
-          "description": "UID of the linked tutor for student progress tracking."
-        },
-        "tutorName": {
-          "type": "string",
-          "description": "Display name or label of the linked tutor."
+          "description": "Current joined squad display name."
         },
         "pinnedEvidenceIds": {
           "type": "array",
           "description": "Evidence card IDs pinned by the detective player to their digital evidence board."
         },
+        "sfxMuted": {
+          "type": "boolean",
+          "description": "Global preference muting or unmuting Web Audio sound effects."
+        },
+        "sfxVolume": {
+          "type": "integer",
+          "description": "Global master volume percentage (0 to 100) for application sound effects."
+        },
         "lastActiveEpochDay": {
           "type": "integer",
-          "description": "UTC epoch day of last recorded study activity."
+          "description": "UTC epoch day of last recorded activity."
         },
         "createdAt": {
           "type": "string",
@@ -119,56 +114,9 @@
         "updatedAt"
       ]
     },
-    "TutorStudentProgress": {
-      "title": "TutorStudentProgress",
-      "description": "Student progress snapshot synced for a linked tutor to monitor CEFR level, weekly words, quizzes, flashcards, badges, and recent sessions.",
-      "type": "object",
-      "properties": {
-        "studentUid": { "type": "string" },
-        "tutorUid": { "type": "string" },
-        "studentName": { "type": "string" },
-        "learningLevel": { "type": "string", "enum": ["A1", "A2", "B1", "B2"] },
-        "xp": { "type": "integer" },
-        "streak": { "type": "integer" },
-        "sessionsCompleted": { "type": "integer" },
-        "weeklyWordsMastered": { "type": "integer" },
-        "quizzesPlayed": { "type": "integer" },
-        "quizzesHosted": { "type": "integer" },
-        "bestLiveQuizScore": { "type": "integer" },
-        "cardsMastered": { "type": "integer" },
-        "decksCreated": { "type": "integer" },
-        "audiobooksFinished": { "type": "integer" },
-        "teamName": { "type": "string" },
-        "earnedBadges": { "type": "array" },
-        "recentActivities": { "type": "array" },
-        "createdAt": { "type": "string", "format": "date-time" },
-        "updatedAt": { "type": "string", "format": "date-time" }
-      },
-      "required": [
-        "studentUid",
-        "tutorUid",
-        "studentName",
-        "learningLevel",
-        "xp",
-        "streak",
-        "sessionsCompleted",
-        "weeklyWordsMastered",
-        "quizzesPlayed",
-        "quizzesHosted",
-        "bestLiveQuizScore",
-        "cardsMastered",
-        "decksCreated",
-        "audiobooksFinished",
-        "teamName",
-        "earnedBadges",
-        "recentActivities",
-        "createdAt",
-        "updatedAt"
-      ]
-    },
     "Team": {
       "title": "Team",
-      "description": "Learning team or tutor-to-teams broadcast channel.",
+      "description": "Social squad or general club lounge channel.",
       "type": "object",
       "properties": {
         "visibility": { "type": "string", "enum": ["CLUB"] },
@@ -178,23 +126,39 @@
         "accentColor": { "type": "string", "enum": ["INDIGO", "CORAL", "AMBER", "MINT", "PURPLE"] },
         "leaderUid": { "type": "string" },
         "leaderName": { "type": "string" },
-        "channelKind": { "type": "string", "enum": ["TEACHER_HUB", "TEAM"] },
+        "channelKind": { "type": "string", "enum": ["TEAM", "CLUB"] },
         "memberCount": { "type": "integer" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["visibility", "name", "cefrLevel", "motto", "accentColor", "leaderUid", "leaderName", "channelKind", "memberCount", "createdAt", "updatedAt"]
     },
+    "TeamMember": {
+      "title": "TeamMember",
+      "description": "Individual player or captain roster entry inside a squad or club team.",
+      "type": "object",
+      "properties": {
+        "teamId": { "type": "string", "maxLength": 128 },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "avatarColor": { "type": "string", "enum": ["INDIGO", "CORAL", "AMBER", "MINT", "BLUE", "PURPLE"] },
+        "role": { "type": "string", "enum": ["CAPTAIN", "PLAYER"] },
+        "memberUid": { "type": "string", "maxLength": 128 },
+        "addedByUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["teamId", "displayName", "avatarColor", "role", "memberUid", "addedByUid", "createdAt", "updatedAt"]
+    },
     "ChatMessage": {
       "title": "ChatMessage",
-      "description": "Real-time message inside a team or tutor-team chat channel.",
+      "description": "Real-time message or sticker inside a squad or club lounge chat channel.",
       "type": "object",
       "properties": {
         "teamId": { "type": "string" },
         "senderUid": { "type": "string" },
         "senderName": { "type": "string" },
         "senderTeamName": { "type": "string" },
-        "senderRole": { "type": "string", "enum": ["ADMIN", "TEACHER", "PLAYER"] },
+        "senderRole": { "type": "string", "enum": ["LEADER", "PLAYER"] },
         "text": { "type": "string" },
         "pinned": { "type": "boolean" },
         "createdAt": { "type": "string", "format": "date-time" },
@@ -204,7 +168,7 @@
     },
     "ClubContent": {
       "title": "ClubContent",
-      "description": "Shared club-wide teaching items (Quiz, Deck, Puzzle, Roleplay, Weekly Word Pack, or Announcement).",
+      "description": "Shared club-wide entertainment and English games (Quiz, Deck, Puzzle, Roleplay, Word Pack, or Announcement).",
       "type": "object",
       "properties": {
         "visibility": { "type": "string", "enum": ["CLUB"] },
@@ -245,13 +209,13 @@
     },
     "SessionRecord": {
       "title": "SessionRecord",
-      "description": "Historical performance entry for a completed quiz, flashcard study review, teaching session, audiobook, or game.",
+      "description": "Historical performance entry for a completed quiz, flashcard review, weekly quest round, audiobook, or arcade game.",
       "type": "object",
       "properties": {
         "activityType": {
           "type": "string",
           "enum": ["QUIZ", "PUZZLE", "CARDS", "GUESSING", "ROLEPLAY", "AUDIOBOOK", "WEEKLY_SESSION", "GAME"],
-          "description": "Category of learning activity."
+          "description": "Category of game or learning activity."
         },
         "title": {
           "type": "string",
@@ -291,12 +255,12 @@
     },
     "WeeklyProgress": {
       "title": "WeeklyProgress",
-      "description": "Tracks mastery of up to 200 dedicated words and 3 teaching sessions for a specific week.",
+      "description": "Tracks mastery of up to 200 dedicated words and 3 quest rounds for a specific week.",
       "type": "object",
       "properties": {
         "weekNumber": {
           "type": "integer",
-          "description": "1-based curriculum week number."
+          "description": "1-based word quest week number."
         },
         "masteredWordIds": {
           "type": "array",
@@ -304,7 +268,7 @@
         },
         "completedSessions": {
           "type": "array",
-          "description": "Completed session numbers (1, 2, 3)."
+          "description": "Completed round numbers (1, 2, 3)."
         },
         "gamesPlayed": {
           "type": "integer",
@@ -342,12 +306,14 @@
     },
     "CustomQuiz": {
       "title": "CustomQuiz",
-      "description": "User-authored or AI-generated Kahoot-style English quiz deck.",
+      "description": "User-authored or AI-generated Kahoot-style party & English quiz deck.",
       "type": "object",
       "properties": {
         "title": { "type": "string" },
         "topic": { "type": "string" },
         "cefrLevel": { "type": "string", "enum": ["A1", "A2", "B1", "B2"] },
+        "customPrompt": { "type": "string", "maxLength": 400 },
+        "language": { "type": "string", "enum": ["EN", "AR"] },
         "questions": { "type": "array" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
@@ -356,7 +322,7 @@
     },
     "CustomDeck": {
       "title": "CustomDeck",
-      "description": "User-created flashcard word deck stored in Firestore for study and review.",
+      "description": "User-created flashcard word deck stored in Firestore for quick review.",
       "type": "object",
       "properties": {
         "title": { "type": "string" },
@@ -382,7 +348,7 @@
     },
     "QuizRoom": {
       "title": "QuizRoom",
-      "description": "Live Kahoot-style multiplayer quiz room hosted by a user.",
+      "description": "Live Kahoot-style multiplayer quiz room hosted by a player.",
       "type": "object",
       "properties": {
         "hostUid": { "type": "string" },
@@ -409,6 +375,8 @@
         "hostUid": { "type": "string" },
         "nickname": { "type": "string" },
         "avatarColor": { "type": "string" },
+        "teamId": { "type": "string", "maxLength": 128 },
+        "teamName": { "type": "string", "maxLength": 50 },
         "score": { "type": "integer" },
         "streak": { "type": "integer" },
         "lastAnswerIndex": { "type": "integer" },
@@ -422,7 +390,7 @@
     },
     "RoomChatMessage": {
       "title": "RoomChatMessage",
-      "description": "Real-time in-game chat message or quick reaction inside a live quiz room.",
+      "description": "Real-time in-game chat message, sticker, or quick reaction inside a live quiz room.",
       "type": "object",
       "properties": {
         "roomCode": { "type": "string" },
@@ -445,6 +413,8 @@
         "userId": { "type": "string" },
         "playerName": { "type": "string" },
         "avatarColor": { "type": "string" },
+        "teamId": { "type": "string", "maxLength": 128 },
+        "teamName": { "type": "string", "maxLength": 50 },
         "quizTitle": { "type": "string" },
         "cefrLevel": { "type": "string", "enum": ["A1", "A2", "B1", "B2"] },
         "score": { "type": "integer" },
@@ -464,23 +434,23 @@
     },
     "/users/{userId}": {
       "schema": { "$ref": "#/entities/UserProfile" },
-      "description": "Per-user learning level, profile, earned badges, team membership, tutor connection, and historical stats."
-    },
-    "/tutors/{tutorUid}/students/{studentUid}": {
-      "schema": { "$ref": "#/entities/TutorStudentProgress" },
-      "description": "Tutor-scoped student progress snapshots allowing tutors to track linked students."
+      "description": "Per-user CEFR level, profile, earned badges, squad membership, and historical stats."
     },
     "/teams/{teamId}": {
       "schema": { "$ref": "#/entities/Team" },
-      "description": "Learning teams and the official Tutor-to-Teams hub channel."
+      "description": "Player squads and the open Club Lounge hangout channel."
     },
     "/teams/{teamId}/messages/{messageId}": {
       "schema": { "$ref": "#/entities/ChatMessage" },
-      "description": "Real-time chat messages between teams and tutors."
+      "description": "Real-time chat messages and stickers inside squad and club channels."
+    },
+    "/teams/{teamId}/members/{memberId}": {
+      "schema": { "$ref": "#/entities/TeamMember" },
+      "description": "Squad and team player roster entries (captains and added or joined players)."
     },
     "/club_content/{contentId}": {
       "schema": { "$ref": "#/entities/ClubContent" },
-      "description": "Shared club-wide quizzes, decks, puzzles, roleplays, weekly word packs, and announcements."
+      "description": "Shared club-wide quizzes, decks, puzzles, roleplays, word packs, and announcements."
     },
     "/users/{userId}/session_history/{recordId}": {
       "schema": { "$ref": "#/entities/SessionRecord" },
@@ -488,7 +458,7 @@
     },
     "/users/{userId}/weekly_progress/{weekId}": {
       "schema": { "$ref": "#/entities/WeeklyProgress" },
-      "description": "Weekly 200-word mastery and 3-session completion progress."
+      "description": "Weekly 200-word mastery and 3-round quest completion progress."
     },
     "/users/{userId}/custom_roleplays/{roleplayId}": {
       "schema": { "$ref": "#/entities/CustomRoleplay" },
@@ -500,7 +470,7 @@
     },
     "/users/{userId}/custom_decks/{deckId}": {
       "schema": { "$ref": "#/entities/CustomDeck" },
-      "description": "User-created flashcard study decks."
+      "description": "User-created flashcard word decks."
     },
     "/users/{userId}/card_mastery/{cardKey}": {
       "schema": { "$ref": "#/entities/CardMastery" },
@@ -516,7 +486,7 @@
     },
     "/quiz_rooms/{roomCode}/messages/{messageId}": {
       "schema": { "$ref": "#/entities/RoomChatMessage" },
-      "description": "Real-time in-game chat messages and quick reactions during live quiz games."
+      "description": "Real-time in-game chat messages, stickers, and quick reactions during live quiz games."
     }
   }
 }
